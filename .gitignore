@@ -2,7 +2,7 @@ node_modules/
 dist/
 release/
 *.log
-
+project-design/
 .env.local
 scripts/.french-source.json
 .payment-smoke-*/
