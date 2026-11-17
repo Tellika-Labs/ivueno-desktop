@@ -445,7 +445,9 @@ function setIslandMode(mode) {
   // The pill never takes the keyboard (dictation types into the app that has it). Opened, it holds the quick-note field,
   // so it may take the keyboard until it is closed again.
   const typing = mode === 'expanded';
-  islandWin.setFocusable(typing);
+  // Only when it changes: re-applying it to the visible pill on every dictation state made Windows drop the focus
+  // from the field the person was typing in.
+  if (islandWin._focusable !== typing) { islandWin._focusable = typing; islandWin.setFocusable(typing); }
   // The window keeps its size and place (windows.js); the page turns one island into the other inside it.
   islandWin.place(mode);
   islandWin.webContents.send('island:mode', mode);
