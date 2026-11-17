@@ -82,7 +82,7 @@ test('the audit export is saved through the normal save dialog', async () => {
   const { h, calls } = setup();
   const r = await h['org:auditExport']({ orgId: 'org1', format: 'csv' });
   assert.equal(r.saved, true);
-  assert.deepEqual(calls.saved, [['ivuenu-auditoria.csv', 'a,b\r\n']]);
+  assert.deepEqual(calls.saved, [['ivueno-auditoria.csv', 'a,b\r\n']]);
   assert.deepEqual(calls.requests[0][2].query, { format: 'csv' });
   await h['org:auditExport']({ orgId: 'org1', format: 'whatever' });
   assert.equal(calls.requests[1][2].query.format, 'csv');                       // only csv or json

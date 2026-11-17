@@ -81,6 +81,7 @@ class SyncManager {
   constructor({ repo, store, api, secure, emit = () => {}, now = () => new Date() }) {
     this.repo = repo; this.store = store; this.api = api; this.secure = secure; this.emit = emit; this.now = now;
     this.running = null; this.timer = null; this.interval = null;
+    this.generation = 0;
   }
 
   get s() { return this.store.data.sync; }
@@ -89,6 +90,7 @@ class SyncManager {
 
   /** Turn sync on. First time: make the data key and lock it with the passphrase. Another computer: unlock the existing key. */
   async enable(passphrase) {
+    const generation = this.generation;
     const me = await this.api.me();
     let remote = null;
     try { remote = await this.api.syncKey(); } catch (e) { if (e.status !== 404) throw e; }
@@ -100,6 +102,7 @@ class SyncManager {
       dataKey = crypto.randomBytes(32);
       await this.api.putSyncKey(wrapKey(dataKey, passphrase));
     }
+    if (generation !== this.generation) throw coded('sync_cancelled', 'A sincronização foi desligada.');
     this.secure.set('syncKey', b64(dataKey));
     this._set((s) => { Object.assign(s, { enabled: true, userId: me.id, cursor: 0, items: {}, lastError: '' }); });
     this.emit();
@@ -108,6 +111,7 @@ class SyncManager {
 
   /** Stop syncing on this computer. The cloud copies stay; this computer forgets the key. */
   disable() {
+    this.generation += 1;
     this.secure.set('syncKey', null);
     this._set((s) => { Object.assign(s, { enabled: false, userId: null, cursor: 0, items: {}, lastError: '' }); });
     this.emit();
@@ -152,6 +156,7 @@ class SyncManager {
   /** One round: pull, push, deletions. Never throws for "no network"; returns the status. */
   async syncNow() {
     if (this.running) return this.running;
+    const generation = this.generation;
     this.running = (async () => {
       if (!this.s.enabled || !this.api.signedIn()) return this.status();
       this.warnings = [];
@@ -159,17 +164,23 @@ class SyncManager {
       if (!key) { this._fail('A chave desta cópia não está neste computador. Volta a ativar a sincronização.'); return this.status(); }
       try {
         const me = await this.api.me();
+        if (generation !== this.generation) return this.status();
         if (this.s.userId && me.id !== this.s.userId) {                    // another account signed in here: never mix their meetings
           this.disable();
           this._fail('A sincronização foi desligada porque entrou outra conta neste computador.');
           return this.status();
         }
-        await this._pull(key);
-        const conflicts = await this._push(key);
-        if (conflicts.length) { await this._pull(key); await this._push(key); }
-        await this._deletions();
+        await this._pull(key, generation);
+        if (generation !== this.generation) return this.status();
+        const conflicts = await this._push(key, generation);
+        if (generation !== this.generation) return this.status();
+        if (conflicts.length) { await this._pull(key, generation); await this._push(key, generation); }
+        if (generation !== this.generation) return this.status();
+        await this._deletions(generation);
+        if (generation !== this.generation) return this.status();
         this._set((s) => { s.lastRun = nowIso(); s.lastError = [...new Set(this.warnings)].join(' '); });   // problems with single items stay visible
       } catch (err) {
+        if (generation !== this.generation) return this.status();
         this._fail(err.code === 'offline' ? 'Sem ligação: tenta outra vez mais tarde.' : (err.message || 'A sincronização falhou.'));
       }
       this.emit();
@@ -178,16 +189,20 @@ class SyncManager {
     return this.running;
   }
 
-  async _pull(key) {
+  async _pull(key, generation = this.generation) {
     for (;;) {
       const page = await this.api.syncList(this.s.cursor);
-      for (const it of page.items) await this._applyRemote(key, it);
+      if (generation !== this.generation) return;
+      for (const it of page.items) {
+        await this._applyRemote(key, it, generation);
+        if (generation !== this.generation) return;
+      }
       this._set((s) => { s.cursor = page.next_after; });
       if (!page.has_more) break;
     }
   }
 
-  async _applyRemote(key, it) {
+  async _applyRemote(key, it, generation = this.generation) {
     const tracked = this.s.items[it.id];
     const local = this.repo.getMeeting(it.id);
     if (it.deleted) {
@@ -198,6 +213,7 @@ class SyncManager {
     if (tracked && tracked.version === it.version) return;                              // that is our own write
     if (local && ACTIVE.has(local.status)) return;                                      // never touch a meeting that is being recorded
     const { data, version } = await this.api.syncGet(it.id);
+    if (generation !== this.generation) return;
     let remote;
     try { remote = decryptItem(key, it.id, data); } catch { this._fail('Uma cópia na nuvem não pôde ser aberta.'); return; }
     if (local) {
@@ -224,9 +240,10 @@ class SyncManager {
   }
 
   /** Upload what changed here. Returns the ids that were refused because they changed somewhere else too. */
-  async _push(key) {
+  async _push(key, generation = this.generation) {
     const conflicts = [];
     for (const m of [...this.repo.d.meetings]) {
+      if (generation !== this.generation) return conflicts;
       if (m.status !== 'done' || m.syncOff) continue;
       const snap = snapshot(m);
       const hash = sha(canon(snap));
@@ -235,6 +252,7 @@ class SyncManager {
       try {
         const day = (m.startedAt || m.createdAt || '').slice(0, 10) || undefined;
         const r = await this.api.syncPut(m.id, encryptItem(key, m.id, snap), tr ? tr.version : 0, day);
+        if (generation !== this.generation) return conflicts;
         this._track(m.id, r.version, hash);
       } catch (e) {
         if (e.code === 'version_conflict') conflicts.push(m.id);
@@ -246,11 +264,13 @@ class SyncManager {
   }
 
   /** Meetings deleted here, or marked "não sincronizar", disappear from the cloud. */
-  async _deletions() {
+  async _deletions(generation = this.generation) {
     for (const id of Object.keys(this.s.items)) {
+      if (generation !== this.generation) return;
       const m = this.repo.getMeeting(id);
       if (m && !m.syncOff) continue;
       try { await this.api.syncDelete(id); } catch (e) { if (e.status !== 404) throw e; }
+      if (generation !== this.generation) return;
       this._untrack(id);
     }
   }

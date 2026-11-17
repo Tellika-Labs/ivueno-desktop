@@ -42,7 +42,7 @@ class Session extends EventEmitter {
       levels: this.levels,
       source: this._source(),
       quiet: !!quiet,
-      partial: this.partial,
+      partial: this.partial ? { ...this.partial, who: this._name(this.partial.speakerKey) } : null,
       error: this.error,
       engine: { id: this.engine.id, label: this.engine.label, realTranscription: this.engine.realTranscription, needsAudio: !!this.engine.needsAudio, audioFormat: this.engine.audioFormat || 'webm' },
       consent: m ? m.consent.status : 'pending',

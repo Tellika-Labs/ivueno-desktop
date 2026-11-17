@@ -2,12 +2,14 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_SETTINGS = {
-  apiBase: 'http://127.0.0.1:8000',
+  // The production API that an installed app talks to. Temporary address until api.ivueno.ao is live: change it here only.
+  // For a local backend while developing, set IVUENU_API_BASE=http://127.0.0.1:8000 in desktop/.env.local.
+  apiBase: 'https://2-29-200-22.sslip.io',
   appLanguage: 'pt',
   theme: 'system',            // system | light | dark
   micId: '',
   captureSystem: true,
-  language: 'auto',           // spoken language: auto | pt | en
+  language: 'auto',           // spoken language: auto | pt | en | fr | es
   template: 'auto',
   keepTranscript: true,
   redact: true,
@@ -19,9 +21,13 @@ const DEFAULT_SETTINGS = {
   engine: 'demo',
   recentSearches: [],
   audioKeep: '7d',            // how long the audio of a meeting stays on this computer: off | final (until the accurate pass is done) | 7d | 30d
-  refineAuto: true,           // after a meeting, send the kept audio for the more accurate transcription by itself
+  refineMode: 'voices',       // what happens to the kept audio after a meeting: voices (tell the people apart, the transcript stays) | text (also transcribe it again) | off
+  glossary: '',               // the person's own terms and names, sent to the speech service as a short hint (empty = no hint)
   meetingPlace: 'both',       // who is where: room (everybody here) | online (a call) | both
   syncPrompted: false,        // the "turn on sync" question was shown once (paid plans)
+  toursSeen: [],              // the tutorials already shown (ids), so each one runs by itself only once
+  autoTours: true,            // tutorials start by themselves the first time a screen appears
+  telemetryNoticeSeen: false, // the one-time note about the usage data the app sends was shown
 };
 
 const DEFAULT_DATA = () => ({
@@ -40,20 +46,24 @@ const DEFAULT_DATA = () => ({
  * bad file is kept next to it as *.corrupt so nothing is silently lost.
  */
 class Store {
-  constructor(file, { debounceMs = 300 } = {}) {
+  constructor(file, { debounceMs = 300, cipher = null } = {}) {
     this.file = file;
+    this.cipher = cipher;
     this.debounceMs = debounceMs;
     this.timer = null;
     this.data = this._load();
+    if (this.cipher && fs.existsSync(this.file)) this.flush();
   }
 
   _load() {
     try {
-      const raw = fs.readFileSync(this.file, 'utf8');
+      const bytes = fs.readFileSync(this.file);
+      const raw = (this.cipher ? this.cipher.open(bytes, 'meetings-store') : bytes).toString('utf8');
       const parsed = JSON.parse(raw);
       const base = DEFAULT_DATA();
       return { ...base, ...parsed, settings: { ...base.settings, ...(parsed.settings || {}) } };
     } catch (err) {
+      if (this.cipher && err.code !== 'ENOENT') throw err;
       if (err.code !== 'ENOENT') {
         try { fs.renameSync(this.file, `${this.file}.corrupt`); } catch { /* keep going with an empty store */ }
       }
@@ -77,7 +87,8 @@ class Store {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.data));
+    const bytes = Buffer.from(JSON.stringify(this.data));
+    fs.writeFileSync(tmp, this.cipher ? this.cipher.seal(bytes, 'meetings-store') : bytes, { mode: 0o600 });
     fs.renameSync(tmp, this.file);
   }
 

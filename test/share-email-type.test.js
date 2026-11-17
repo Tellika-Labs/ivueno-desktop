@@ -46,7 +46,7 @@ test('what goes into the file is the person\'s choice; by default everything exc
   assert.match(s.calls.clip[0], /Resumo/); assert.match(s.calls.clip[0], /As tuas notas/); assert.match(s.calls.clip[0], /Tarefas/); assert.doesNotMatch(s.calls.clip[0], /Transcrição/);
   await s.h['export:run']({ id, format: 'copy', include: { summary: false, mine: false, ai: false, transcript: true } });
   const only = s.calls.clip[1];
-  assert.doesNotMatch(only, /Resumo|As tuas notas|Notas da Ivuenu/); assert.match(only, /Tarefas/); assert.match(only, /Transcrição/);
+  assert.doesNotMatch(only, /Resumo|As tuas notas|Notas da Ivueno/); assert.match(only, /Tarefas/); assert.match(only, /Transcrição/);
   await s.h['export:run']({ id, format: 'copy', includeTranscript: true });                  // the old flag still works
   assert.match(s.calls.clip[2], /Transcrição/);
   await s.h['export:run']({ id, format: 'copy', include: { summary: 'yes', tasks: 0 } });    // only real booleans count
@@ -56,9 +56,9 @@ test('what goes into the file is the person\'s choice; by default everything exc
 test('PDF: paper size and the brand line; Word and Markdown are saved through the save dialog', async () => {
   const s = setup(); const id = meetingWithNotes(s.repo);
   await s.h['export:run']({ id, format: 'pdf', paper: 'Letter', brand: true });
-  assert.equal(s.calls.pdf[0].opts.paper, 'Letter'); assert.match(s.calls.pdf[0].html, /Notas criadas com a Ivuenu/);
+  assert.equal(s.calls.pdf[0].opts.paper, 'Letter'); assert.match(s.calls.pdf[0].html, /Notas criadas com a Ivueno/);
   await s.h['export:run']({ id, format: 'pdf', paper: 'whatever' });
-  assert.equal(s.calls.pdf[1].opts.paper, 'A4'); assert.doesNotMatch(s.calls.pdf[1].html, /Notas criadas com a Ivuenu/);
+  assert.equal(s.calls.pdf[1].opts.paper, 'A4'); assert.doesNotMatch(s.calls.pdf[1].html, /Notas criadas com a Ivueno/);
   await s.h['export:run']({ id, format: 'md' });
   assert.equal(s.calls.saved.at(-1).name, 'Preços.md'); assert.match(s.calls.saved.at(-1).data.toString(), /# Preços/);
   await s.h['export:run']({ id, format: 'docx' });
@@ -70,7 +70,7 @@ test('the email text is short: title, summary and open tasks, never the notes or
   const { repo } = newRepo(); const m = repo.getMeeting(meetingWithNotes(repo));
   const text = exporter.toEmailText(m, { nameOf: (k) => k, include: {} });
   assert.match(text, /Preços/); assert.match(text, /Vão subir os preços 5%/); assert.match(text, /Enviar a lista/);
-  assert.doesNotMatch(text, /As tuas notas|Notas da Ivuenu|Transcrição/);
+  assert.doesNotMatch(text, /As tuas notas|Notas da Ivueno|Transcrição/);
   assert.doesNotMatch(exporter.toEmailText(m, { nameOf: (k) => k, include: { tasks: false } }), /Enviar a lista/);
 });
 

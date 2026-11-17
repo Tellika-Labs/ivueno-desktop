@@ -74,7 +74,7 @@ class DemoEngine {
   async summarize(req, nameOf) { return { text: extractiveSummary({ ...req, nameOf }), engine: 'extractive' }; }
 
   async draftEmail(req, nameOf) {
-    const language = req.language === 'auto' ? (req.meeting.language === 'en' ? 'en' : 'pt') : req.language;
+    const language = req.language === 'auto' ? require('../languages').meetingLanguage(req.meeting, 'pt') : req.language;
     return { ...extractiveEmail(req.meeting, nameOf, { ...req, language }), engine: 'template' };
   }
 

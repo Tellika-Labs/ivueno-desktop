@@ -1,3 +1,4 @@
+import { useAutoTour } from '../components/Tour.jsx';
 import React, { useState } from 'react';
 import { useT } from '../lib/i18n.js';
 import { IconButton, Seg, Skeleton } from '../components/ui.jsx';
@@ -14,6 +15,7 @@ export default function Tasks() {
   const { nav, auth, toast } = useApp();
   const [filter, setFilter] = useState('mine');
   const { data, loading } = useQuery('tasks:overview', { includeDone: true }, { kinds: ['tasks', 'meetings', 'notes'] });
+  useAutoTour('tasks', !loading);
   const me = (auth.user && auth.user.name) || 'tu';
 
   const groups = (data ? data.groups : []).map((g) => ({
@@ -25,22 +27,22 @@ export default function Tasks() {
   const patch = (id, taskId, p) => call('tasks:patch', { id, taskId, patch: p }).catch((e) => toast(friendly(e)));
 
   return (
-    <div className="page framed" style={{ '--max': '880px' }}>
+    <div className="page framed" style={{ '--max': 'clamp(880px, 68vw, 1240px)' }}>
       <div className="page-inner" style={{ gap: 24 }}>
         <header className="page-head">
           <div className="col" style={{ gap: 4 }}>
             <h1 className="display">{t("Tarefas")}</h1>
             <span className="muted">{filter === 'done' ? t('Tarefas concluídas.') : `${t(groups.length === 1 ? '{n} em aberto, de {m} reunião.' : '{n} em aberto, de {m} reuniões.', { n: open, m: groups.length })}${filter === 'mine' ? ` ${t('Só as que são tuas ou estão sem dono.')}` : ''}`}</span>
           </div>
-          <Seg label={t("Mostrar")} value={filter} onChange={setFilter} options={[{ id: 'mine', label: t('Minhas') }, { id: 'all', label: t('Todas') }, { id: 'done', label: t('Concluídas') }]} />
+          <div data-tour="tasks-filter"><Seg label={t("Mostrar")} value={filter} onChange={setFilter} options={[{ id: 'mine', label: t('Minhas') }, { id: 'all', label: t('Todas') }, { id: 'done', label: t('Concluídas') }]} /></div>
         </header>
-        <div className="page-scroll">
+        <div className="page-scroll" data-tour="tasks-list">
         {loading && <div className="col" style={{ gap: 12 }}><Skeleton w="40%" /><Skeleton /><Skeleton w="70%" /></div>}
         {!loading && groups.length === 0 && <div className="empty" style={{ padding: '32px 24px' }}><strong>{t("Nada por fazer aqui.")}</strong><span className="muted">{t("As tarefas aparecem quando uma reunião as tem.")}</span></div>}
         {groups.map((g) => (
           <section key={g.meetingId} className="col" style={{ gap: 8 }}>
             <div className="group-head">
-              <a href="#" onClick={(e) => { e.preventDefault(); nav('detail', { id: g.meetingId, tab: 'tasks' }); }}>{g.title}</a>
+              <a href="#" data-tour="tasks-link" onClick={(e) => { e.preventDefault(); nav('detail', { id: g.meetingId, tab: 'tasks' }); }}>{g.title}</a>
               <span className="muted" style={{ fontSize: 12 }}>{dm(g.startedAt)} · {hm(g.startedAt)} · {t('abrir reunião')}</span>
             </div>
             {g.items.map((task) => (

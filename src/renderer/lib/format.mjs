@@ -3,14 +3,17 @@
 const p2 = (n) => String(n).padStart(2, '0');
 // Interface language for the words produced here ("Hoje", "min", weekday names). The app sets it when the language changes.
 let LANG = 'pt';
-export const setFormatLang = (lang) => { LANG = lang === 'en' ? 'en' : 'pt'; };
-const locale = () => (LANG === 'en' ? 'en-GB' : 'pt-PT');
+export const setFormatLang = (lang) => { LANG = ['en', 'fr'].includes(lang) ? lang : 'pt'; };
+const locale = () => ({ pt: 'pt-PT', en: 'en-GB', fr: 'fr-FR' }[LANG]);
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Weekday name in the interface language: "Sexta-feira" / "Friday". */
 export const weekdayName = (date, style = 'long') => cap(new Intl.DateTimeFormat(locale(), { weekday: style }).format(date));
 /** Month name in the interface language: "Novembro" / "November". */
 export const monthName = (date) => cap(new Intl.DateTimeFormat(locale(), { month: 'long' }).format(date));
 const T = {
+  fr: { less: 'moins de 1 min', today: 'Aujourd’hui', yesterday: 'Hier', tomorrow: 'Demain', recording: 'Enregistrement', paused: 'En pause', writing: 'Rédaction des notes…',
+    needsNotes: 'Notes à rédiger', failed: 'Notes non rédigées', notesOnly: 'Notes uniquement', ready: 'Prête', task: 'tâche', tasks: 'tâches',
+    weak: n => `Faible · encore ${n} caractères pour atteindre le minimum de 10`, good: 'Bon', strong: 'Fort' },
   pt: { less: 'menos de 1 min', today: 'Hoje', yesterday: 'Ontem', tomorrow: 'Amanhã', recording: 'A gravar', paused: 'Em pausa', writing: 'A escrever notas…',
     needsNotes: 'Precisa de notas', failed: 'Notas por escrever', notesOnly: 'Só notas', ready: 'Pronta', task: 'tarefa', tasks: 'tarefas',
     weak: (n) => `Fraca · faltam ${n} caracteres para o mínimo de 10`, good: 'Boa', strong: 'Forte' },

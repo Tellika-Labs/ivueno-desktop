@@ -7,6 +7,17 @@ const { newRepo } = require('./helpers');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+test('renaming a speaker also refreshes a phrase currently being spoken', () => {
+  const { repo, session } = setup();
+  const m = repo.createMeeting({});
+  repo.addSegments(m.id, [{ text: 'Earlier phrase.', speakerKey: 'spk_1' }]);
+  session.meetingId = m.id;
+  session.partial = { speakerKey: 'spk_1', who: 'Orador 1', text: 'Still speaking…' };
+  repo.renameSpeaker(m.id, 'spk_1', 'Carlos');
+  assert.equal(session.snapshot().partial.who, 'Carlos');
+  assert.equal(session.snapshot().partial.text, 'Still speaking…');
+});
+
 function setup(extra = {}) {
   const { repo } = newRepo();
   const engine = new DemoEngine({ stepMs: 10 });

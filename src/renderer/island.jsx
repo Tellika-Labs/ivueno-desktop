@@ -28,6 +28,7 @@ function Island() {
   // The island is its own window: it reads the interface language from the settings (and follows changes).
   const [lang, setLang] = useState('pt');
   const t = (key, vars) => translate(lang, key, vars);
+  useEffect(() => { document.documentElement.lang = { pt: 'pt-AO', en: 'en', fr: 'fr' }[lang] || 'pt-AO'; }, [lang]);
   useEffect(() => {
     const load = () => call('settings:get').then((s) => { setLang(s.appLanguage || 'pt'); setFormatLang(s.appLanguage); }).catch(() => {});
     load();
@@ -106,7 +107,7 @@ function Island() {
 
   return (
     <div className="island-root">
-      <div className="island open" role="region" aria-label={t('Ivuenu a gravar')}>
+      <div className="island open" role="region" aria-label={t('Ivueno a gravar')}>
         <div className="row" style={{ gap: 10 }}>
           <span className={dotClass} />
           <span style={{ fontWeight: 600, color: '#FF8A80' }}>{phase === 'paused' ? t('Em pausa') : phase === 'recording' ? t('A gravar') : label}</span>
@@ -124,7 +125,7 @@ function Island() {
           <label className="sr-only" htmlFor="il-note">{t('Nota rápida')}</label>
           <input id="il-note" placeholder={t('Nota rápida · Enter junta às tuas notas')} value={note} onChange={(e) => setNote(e.target.value)} />
           <button type="button" className="ib" aria-label={phase === 'paused' ? t('Retomar') : t('Pausar')} onClick={() => call(phase === 'paused' ? 'rec:resume' : 'rec:pause')}>{phase === 'paused' ? '▶' : '❚❚'}</button>
-          <button type="button" className="ib" aria-label={t('Abrir a Ivuenu')} onClick={() => send('island:open-main')}>↗</button>
+          <button type="button" className="ib" aria-label={t('Abrir a Ivueno')} onClick={() => send('island:open-main')}>↗</button>
           <button type="button" className="stop" onClick={() => call('rec:stop')} disabled={phase !== 'recording' && phase !== 'paused'}>■ {t('Parar')}</button>
         </form>
       </div>

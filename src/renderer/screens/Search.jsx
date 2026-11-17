@@ -32,7 +32,7 @@ export default function Search() {
   const total = results.reduce((n, r) => n + r.hits.length, 0);
 
   return (
-    <div className="page framed" style={{ '--max': '880px' }}>
+    <div className="page framed" style={{ '--max': 'clamp(880px, 68vw, 1240px)' }}>
       <div className="page-inner" style={{ gap: 20 }}>
         <h1 className="display">{t("Pesquisar")}</h1>
         <div className="search-wrap">

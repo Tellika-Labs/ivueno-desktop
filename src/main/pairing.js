@@ -58,7 +58,7 @@ class Pairing {
     const secret = crypto.randomBytes(16);
     const made = await this.api.syncPairCreate(pub);
     this.cur = { id: made.id, ecdh, secret, expiresAt: Date.parse(made.expires_at) || this.now() + 5 * 60 * 1000 };
-    const link = `ivuenu://pair?v=1&s=${encodeURIComponent(this.getBase())}&id=${made.id}&k=${pub}&x=${b64u(secret)}`;
+    const link = `ivueno://pair?v=1&s=${encodeURIComponent(this.getBase())}&id=${made.id}&k=${pub}&x=${b64u(secret)}`;
     return { link, expiresAt: this.cur.expiresAt };
   }
 

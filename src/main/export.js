@@ -39,7 +39,7 @@ function toMarkdown(m, opts) {
   if (s.summary) L.push('## Resumo', '', s.summary, '');
   if (s.mine.length) L.push('## As tuas notas', '', ...s.mine, '');
   if (s.blocks.some((b) => b.add)) {
-    L.push('## Notas da Ivuenu', '');
+    L.push('## Notas da Ivueno', '');
     for (const b of s.blocks) { L.push(b.mine); if (b.add) L.push(`  - ${b.add}${b.t ? ` (${b.t})` : ''}`); }
     L.push('');
   }
@@ -68,11 +68,11 @@ h1{font-size:22pt;margin:0 0 4px}h2{font-size:14pt;margin:22px 0 6px}.meta{color
 <h1>${esc(s.title)}</h1><div class="meta">${esc(s.when)}${s.people.length ? ` · ${esc(s.people.join(', '))}` : ''}</div>
 ${s.summary ? `<h2>Resumo</h2><p>${esc(s.summary)}</p>` : ''}
 ${s.mine.length ? `<h2>As tuas notas</h2>${s.mine.map((l) => `<div>${esc(l)}</div>`).join('')}` : ''}
-${s.blocks.some((b) => b.add) ? `<h2>Notas da Ivuenu</h2>${s.blocks.map((b) => `<div>${esc(b.mine)}</div>${b.add ? `<div class="add">${esc(b.add)}${b.t ? ` (${esc(b.t)})` : ''}</div>` : ''}`).join('')}` : ''}
+${s.blocks.some((b) => b.add) ? `<h2>Notas da Ivueno</h2>${s.blocks.map((b) => `<div>${esc(b.mine)}</div>${b.add ? `<div class="add">${esc(b.add)}${b.t ? ` (${esc(b.t)})` : ''}</div>` : ''}`).join('')}` : ''}
 ${s.extra.length ? `<h2>Também foi dito</h2>${li(s.extra.map((e) => esc(e.text)))}` : ''}
 ${s.tasks.length ? `<h2>Tarefas</h2>${li(s.tasks.map((t) => `${t.done ? '☑' : '☐'} ${esc(t.text)} <span class="meta">— ${esc(t.meta)}</span>`))}` : ''}
 ${s.transcript ? `<h2>Transcrição</h2>${s.transcript.map((t) => `<p><b>${esc(t.who)}</b> <span class="meta">${t.t}</span><br>${esc(t.text)}${t.tr ? `<br><i>${esc(t.tr)}</i>` : ''}</p>`).join('')}` : ''}
-${opts.brand ? '<div class="meta" style="margin-top:28px;border-top:1px solid #DDD7CC;padding-top:8px">Notas criadas com a Ivuenu</div>' : ''}
+${opts.brand ? '<div class="meta" style="margin-top:28px;border-top:1px solid #DDD7CC;padding-top:8px">Notas criadas com a Ivueno</div>' : ''}
 </body></html>`;
 }
 
@@ -86,7 +86,7 @@ function toDocx(m, opts) {
   if (s.summary) body.push(para('Resumo', { bold: true, size: 28 }), para(s.summary));
   if (s.mine.length) body.push(para('As tuas notas', { bold: true, size: 28 }), ...s.mine.map((l) => para(l)));
   if (s.blocks.some((b) => b.add)) {
-    body.push(para('Notas da Ivuenu', { bold: true, size: 28 }));
+    body.push(para('Notas da Ivueno', { bold: true, size: 28 }));
     for (const b of s.blocks) { body.push(para(b.mine)); if (b.add) body.push(para(`${b.add}${b.t ? ` (${b.t})` : ''}`, { indent: 400, color: '57524B' })); }
   }
   if (s.extra.length) body.push(para('Também foi dito', { bold: true, size: 28 }), ...s.extra.map((e) => para(`• ${e.text}`)));

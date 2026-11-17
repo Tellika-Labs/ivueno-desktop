@@ -4,11 +4,11 @@ import { call } from '../lib/bridge.js';
 import { friendly } from '../lib/errors.mjs';
 import { useT } from '../lib/i18n.js';
 
-const PARTS = [['summary', 'Resumo'], ['mine', 'As tuas notas'], ['ai', 'Notas da Ivuenu'], ['tasks', 'Tarefas'], ['transcript', 'Transcrição']];
+const PARTS = [['summary', 'Resumo'], ['mine', 'As tuas notas'], ['ai', 'Notas da Ivueno'], ['tasks', 'Tarefas'], ['transcript', 'Transcrição']];
 
 /**
  * Share a meeting's notes as a file (PDF, Word or Markdown) with the people the person picks (the meeting's, their team's, or any address).
- * The Ivuenu never sends anything itself: it saves the file, opens the person's email program with the message ready, and shows the file
+ * The Ivueno never sends anything itself: it saves the file, opens the person's email program with the message ready, and shows the file
  * so it can be dragged into the email. The person chooses what goes in; the transcript is off unless they switch it on.
  */
 export default function ShareDialog({ meetingId, title, onClose }) {
@@ -79,7 +79,7 @@ export default function ShareDialog({ meetingId, title, onClose }) {
           {format === 'pdf' && (
             <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
               <input type="checkbox" checked={brand} onChange={(e) => setBrand(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
-              <span>{t('Linha «Notas criadas com a Ivuenu» no fim')}</span>
+              <span>{t('Linha «Notas criadas com a Ivueno» no fim')}</span>
             </label>
           )}
         </div>
@@ -100,7 +100,7 @@ export default function ShareDialog({ meetingId, title, onClose }) {
             </span>
           </Banner>
         )}
-        <span className="muted" style={{ fontSize: 12 }}>{t('A Ivuenu não envia nada: guarda o ficheiro e abre o email no teu programa de email, para tu o enviares.')}</span>
+        <span className="muted" style={{ fontSize: 12 }}>{t('A Ivueno não envia nada: guarda o ficheiro e abre o email no teu programa de email, para tu o enviares.')}</span>
         <div className="row wrap" style={{ justifyContent: 'flex-end' }}>
           <Button disabled={busy || nothing} onClick={() => send(false)}>{t('Só guardar o ficheiro')}</Button>
           <Button variant="primary" icon="mail" disabled={busy || nothing} onClick={() => send(true)}>{t('Guardar e abrir o email')}</Button>

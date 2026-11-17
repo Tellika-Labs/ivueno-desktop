@@ -167,6 +167,34 @@ test('recipes and questions use the server, and fall back to the local ones when
   assert.ok((await b.cloud.runRecipe(meeting(), 'decisions', {}, () => 'Rui')).text.length > 0);
 });
 
+test('a recipe the local engine cannot write says why it failed instead of "not working yet"', async () => {
+  for (const recipeId of ['suggest-reply', 'explain', 'good-questions', 'blind-spots', 'coach']) {
+    const { cloud } = engine(fakeApi({ cloudRecipe: async () => { throw err('offline', 0); } }));
+    await assert.rejects(cloud.runRecipe(meeting(), recipeId, { live: true }, () => 'Rui'), (e) => e.code === 'offline' && e.retryable === true);
+  }
+  const limited = engine(fakeApi({ cloudRecipe: async () => { throw err('rate_limited', 429); } }));
+  await assert.rejects(limited.cloud.runRecipe(meeting(), 'coach', {}, () => 'Rui'), (e) => e.code === 'rate_limited' && e.retryable === true);
+  const gated = engine(fakeApi({ cloudRecipe: async () => { throw err('plan_required', 402); } }));
+  await assert.rejects(gated.cloud.runRecipe(meeting(), 'coach', {}, () => 'Rui'), (e) => e.code === 'plan_required' && e.retryable === false);
+  const down = engine(fakeApi({ cloudRecipe: async () => { throw err('llm_failed', 502); } }));
+  await assert.rejects(down.cloud.runRecipe(meeting(), 'coach', {}, () => 'Rui'), (e) => e.code === 'recipe_failed' && e.retryable === true);
+});
+
+test('a recipe the local engine can write still falls back, and says so', async () => {
+  const { cloud } = engine(fakeApi({ cloudRecipe: async () => { throw err('offline', 0); } }));
+  const out = await cloud.runRecipe(meeting(), 'decisions', {}, () => 'Rui');
+  assert.equal(out.engine, 'demo-fallback');
+  assert.ok(out.text.length > 0);
+});
+
+test("the person's own recipe runs on the server with its instructions", async () => {
+  const api = fakeApi(); const { cloud } = engine(api);
+  const out = await cloud.runRecipe(meeting(), 'rcp_custom', { live: false, instructions: 'Lista só os números' }, () => 'Rui');
+  assert.equal(out.text, 'receita da nuvem');
+  assert.equal(api.calls.recipe[0].instructions, 'Lista só os números');
+  assert.equal(api.calls.recipe[0].recipe_id, undefined);
+});
+
 // ------------------------------------------------------------------------------------------------ the router
 function router(features = ['cloud_transcription', 'cloud_notes'], over = {}) {
   const { demo, cloud } = engine(fakeApi(), { language: 'auto' });

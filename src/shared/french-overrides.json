@@ -1,0 +1,41 @@
+{
+  "ui": {
+    "Não traduzir": "Ne pas traduire",
+    "https://… ou webcal://…": "https://… ou webcal://…",
+    "Resumido pela IA da Ivueno. Nada fica guardado no servidor.": "Résumé par l’IA d’Ivueno. Rien n’est conservé sur le serveur.",
+    "A pensar…": "Réflexion…",
+    "Não foi possível escrever as notas. Tenta outra vez.": "Impossible de rédiger les notes. Réessayez.",
+    "Barra lateral": "Barre latérale",
+    "Principal": "Navigation principale",
+    "Nome da pasta": "Nom du dossier",
+    "Passos": "Étapes",
+    "Nome guardado": "Nom enregistré",
+    "Palavra-passe mudada": "Mot de passe modifié",
+    "Notas copiadas": "Notes copiées",
+    "Guardado: {name}": "Enregistré : {name}",
+    "{n} participantes": "{n} participants",
+    "Idioma do resumo": "Langue du résumé",
+    "Definições": "Paramètres",
+    "Tu": "Vous",
+    "A guardar…": "Enregistrement…",
+    "Orador {n}": "Intervenant {n}",
+    "Receitas": "Consignes",
+    "Pro + Nuvem": "Pro + Cloud",
+    "Equipa": "Équipe"
+  },
+  "keys": {
+    "welcome.body": "Ivueno enregistre la réunion sur votre ordinateur, sans bot dans l’appel, et complète vos notes avec ce qui a été dit. Vos réunions restent sur votre ordinateur.",
+    "auth.signupBody": "Gratuit pour 10 réunions par mois. Sans carte bancaire.",
+    "nav.plan": "Abonnement",
+    "nav.plans": "Abonnements",
+    "set.plano": "Abonnement et utilisation",
+    "nav.home": "Accueil",
+    "nav.new": "Nouvelle réunion",
+    "nav.settings": "Paramètres",
+    "set.title": "Paramètres",
+    "set.rec": "Consignes",
+    "set.appLang": "Langue de l’application",
+    "check.body": "Ivueno utilise son service de transcription. Vérifions le microphone et l’espace disque de cet ordinateur.",
+    "fin.demo": "Mode de démonstration : la conversation est simulée et les notes s’appuient uniquement sur cet exemple."
+  }
+}

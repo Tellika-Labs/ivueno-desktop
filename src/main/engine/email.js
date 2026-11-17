@@ -17,6 +17,16 @@ const EN = {
   friendly: { hello: (n) => (n ? `Hi ${n},` : 'Hi all,'), thanks: 'Thanks for the meeting today!', recap: 'Quick recap:', steps: 'Next steps:', close: 'Best,', subject: (t) => `Recap of our meeting${t ? `: ${t}` : ''}` },
   direct: { hello: (n) => (n ? `${n},` : 'Hi,'), thanks: '', recap: 'Summary:', steps: 'To do:', close: 'Regards,', subject: (t) => `Summary: ${t || 'meeting'}` },
 };
+const FR = {
+  formal: { hello: n => n ? `Bonjour ${n},` : 'Bonjour à toutes et à tous,', thanks: 'Je vous remercie pour le temps consacré à cette réunion.', recap: 'En résumé :', steps: 'Prochaines étapes :', close: 'Cordialement,', subject: t => `Compte rendu de la réunion${t ? ` : ${t}` : ''}` },
+  friendly: { hello: n => n ? `Bonjour ${n},` : 'Bonjour à tous,', thanks: 'Merci pour la réunion !', recap: 'Voici un bref récapitulatif :', steps: 'Prochaines étapes :', close: 'Bien à vous,', subject: t => `Récapitulatif de notre réunion${t ? ` : ${t}` : ''}` },
+  direct: { hello: n => n ? `${n},` : 'Bonjour,', thanks: '', recap: 'Résumé :', steps: 'À faire :', close: 'Cordialement,', subject: t => `Résumé : ${t || 'réunion'}` },
+};
+const ES = {
+  formal: { hello: n => n ? `Estimados ${n}:` : 'Estimados participantes:', thanks: 'Gracias por el tiempo dedicado a la reunión.', recap: 'En resumen:', steps: 'Próximos pasos:', close: 'Atentamente,', subject: t => `Resumen de la reunión${t ? `: ${t}` : ''}` },
+  friendly: { hello: n => n ? `Hola ${n}:` : 'Hola a todos:', thanks: '¡Gracias por la reunión!', recap: 'Un breve resumen:', steps: 'Próximos pasos:', close: 'Un saludo,', subject: t => `Resumen de nuestra reunión${t ? `: ${t}` : ''}` },
+  direct: { hello: n => n ? `${n}:` : 'Hola:', thanks: '', recap: 'Resumen:', steps: 'Tareas:', close: 'Saludos,', subject: t => `Resumen: ${t || 'reunión'}` },
+};
 
 /** Everything an email can be built from, taken from the meeting: summary, the person's notes, what was added, the open tasks. */
 function material(meeting) {
@@ -37,10 +47,10 @@ const firstNames = (names, and = 'e') => {
 
 /** The draft without any AI: greeting, thanks, the summary (or the person's own notes), next steps, sign-off. */
 function templateEmail({ meeting, tone = 'friendly', language = 'pt', includeTasks = true, senderName = '', attendeeNames = [] }) {
-  const lang = language === 'en' ? 'en' : 'pt';
-  const T = (lang === 'en' ? EN : PT)[TONES.includes(tone) ? tone : 'friendly'];
+  const lang = require('../languages').languageCode(language) || 'pt';
+  const T = ({ pt: PT, en: EN, fr: FR, es: ES })[lang][TONES.includes(tone) ? tone : 'friendly'];
   const mat = material(meeting);
-  const names = firstNames(attendeeNames, lang === 'en' ? 'and' : 'e');
+  const names = firstNames(attendeeNames, { pt: 'e', en: 'and', fr: 'et', es: 'y' }[lang]);
   const lines = [T.hello(names), ''];
   if (T.thanks) lines.push(T.thanks, '');
   const recap = mat.summary || (mat.mine ? mat.mine.split('\n').filter((l) => l.trim()).slice(0, 6).map((l) => `• ${l.replace(/^[•\-*]\s*/, '')}`).join('\n') : mat.added.slice(0, 5).map((l) => `• ${l}`).join('\n'));

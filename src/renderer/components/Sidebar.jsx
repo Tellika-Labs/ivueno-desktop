@@ -6,6 +6,7 @@ import { useQuery, useDismiss } from '../lib/hooks.js';
 import { call } from '../lib/bridge.js';
 import { clockStr, initialsOf } from '../lib/format.mjs';
 import { useT } from '../lib/i18n.js';
+import HelpHub from './HelpHub.jsx';
 
 export default function Sidebar() {
   const { route, nav, rec, auth, openStart, toast, logout } = useApp();
@@ -15,6 +16,7 @@ export default function Sidebar() {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [menu, setMenu] = useState(false);
+  const [help, setHelp] = useState(false);
   const menuRef = useDismiss(menu, () => setMenu(false));
 
   const recording = rec && (rec.phase === 'recording' || rec.phase === 'paused');
@@ -31,8 +33,8 @@ export default function Sidebar() {
   const isHome = route.name === 'home' && !route.folderId;
 
   return (
-    <aside className="sidebar" aria-label="Barra lateral">
-      <div className="brand"><Logo recording={recording} />ivuenu</div>
+    <aside className="sidebar" aria-label={t('Barra lateral')}>
+      <div className="brand"><Logo recording={recording} />ivueno</div>
 
       {recording ? (
         <button type="button" className="rec-card" onClick={() => nav('live')}>
@@ -43,21 +45,21 @@ export default function Sidebar() {
           <span style={{ fontSize: 12, color: 'var(--accent-hover)', fontWeight: 600 }}>{t('nav.back')}</span>
         </button>
       ) : (
-        <button type="button" className="btn primary" style={{ height: 40 }} onClick={() => openStart()} disabled={rec && rec.phase === 'writing'}>
+        <button type="button" className="btn primary" data-tour="new" style={{ height: 40 }} onClick={() => openStart()} disabled={rec && rec.phase === 'writing'}>
           <Icon name="plus" size={18} stroke={2} />{t('nav.new')}
         </button>
       )}
 
-      <nav className="nav" aria-label="Principal">
+      <nav className="nav" aria-label={t('Principal')}>
         <button type="button" className="nav-item" aria-current={isHome ? 'page' : undefined} onClick={() => nav('home')}><Icon name="home" />{t('nav.home')}</button>
-        <button type="button" className="nav-item" aria-current={route.name === 'tasks' ? 'page' : undefined} onClick={() => nav('tasks')}>
+        <button type="button" className="nav-item" data-tour="nav-tasks" aria-current={route.name === 'tasks' ? 'page' : undefined} onClick={() => nav('tasks')}>
           <Icon name="tasks" /><span className="grow">{t('nav.tasks')}</span>
           {overview.data && overview.data.open > 0 && <span className="badge" aria-label={`${overview.data.open} em aberto`}>{overview.data.open}</span>}
         </button>
         <button type="button" className="nav-item" aria-current={route.name === 'search' ? 'page' : undefined} onClick={() => nav('search')}><Icon name="search" />{t('nav.search')}</button>
       </nav>
 
-      <div className="side-section">
+      <div className="side-section" data-tour="folders">
         <div className="side-title">
           <span>{t('nav.folders')}</span>
           <button type="button" className="icon-btn sm" style={{ width: 24, height: 24 }} aria-label={t('nav.newFolder')} onClick={() => setAdding(true)}><Icon name="plus" size={16} stroke={2} /></button>
@@ -69,8 +71,8 @@ export default function Sidebar() {
         ))}
         {adding && (
           <form onSubmit={addFolder} style={{ padding: '2px 4px' }}>
-            <label className="sr-only" htmlFor="new-folder">Nome da pasta</label>
-            <input id="new-folder" className="input" style={{ height: 32, width: '100%' }} autoFocus value={name} placeholder="Nome da pasta"
+            <label className="sr-only" htmlFor="new-folder">{t('Nome da pasta')}</label>
+            <input id="new-folder" className="input" style={{ height: 32, width: '100%' }} autoFocus value={name} placeholder={t('Nome da pasta')}
               onChange={(e) => setName(e.target.value)} onBlur={addFolder} onKeyDown={(e) => { if (e.key === 'Escape') { setName(''); setAdding(false); } }} />
           </form>
         )}
@@ -78,6 +80,7 @@ export default function Sidebar() {
       </div>
 
       <div className="side-foot">
+        <button type="button" className="nav-item" onClick={() => setHelp(true)}><Icon name="info" />{t('Ajuda e tutoriais')}</button>
         <button type="button" className="nav-item" aria-current={route.name === 'settings' ? 'page' : undefined} onClick={() => nav('settings')}><Icon name="sliders" />{t('nav.settings')}</button>
         <div className="local-note"><Icon name="laptop" size={16} stroke={1.8} />{t('nav.local')}</div>
         <div style={{ position: 'relative' }} ref={menuRef}>
@@ -96,6 +99,7 @@ export default function Sidebar() {
           )}
         </div>
       </div>
+      {help && <HelpHub onClose={() => setHelp(false)} />}
     </aside>
   );
 }

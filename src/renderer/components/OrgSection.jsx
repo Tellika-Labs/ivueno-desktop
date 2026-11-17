@@ -5,6 +5,7 @@ import { useQuery } from '../lib/hooks.js';
 import { call } from '../lib/bridge.js';
 import { friendly } from '../lib/errors.mjs';
 import { useApp } from '../lib/app-context.js';
+import Dropdown from './Dropdown.jsx';
 
 const org = (method, path, body, query) => call('org:call', { method, path, body, query });
 const ROLE = { owner: 'Dono', admin: 'Administrador', member: 'Membro' };
@@ -33,7 +34,7 @@ export default function OrgSection() {
           <h2 id="st-org">{mine.name}</h2>
           <span className="row" style={{ gap: 8 }}>
             {list.length > 1 && (
-              <select className="select" aria-label={t('Organização')} value={mine.id} onChange={(e) => setCurrent(e.target.value)}>{list.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select>
+              <Dropdown label={t('Organização')} value={mine.id} onChange={setCurrent} options={list.map(o => ({ id: o.id, label: o.name }))} />
             )}
             <span className="tag accent">{t(ROLE[mine.role])}</span>
           </span>
@@ -61,11 +62,11 @@ function Start({ onDone, toast, fail, error }) {
       <p className="muted">{t('Uma organização junta a tua equipa: lugares, regras da empresa, auditoria e início de sessão da empresa. Ainda não fazes parte de nenhuma.')}</p>
       {error && <Banner tone="warn" role="alert">{error}</Banner>}
       {!verified && <Banner tone="info">{t('Confirma o teu email para criares organizações ou aceitares convites.')}</Banner>}
-      <form className="row wrap" onSubmit={async (e) => { e.preventDefault(); try { await org('POST', '/v1/orgs', { name }); toast(t('Organização criada.')); setName(''); onDone(); } catch (err) { fail(err); } }}>
+      <form className="row wrap form-row" onSubmit={async (e) => { e.preventDefault(); try { await org('POST', '/v1/orgs', { name }); toast(t('Organização criada.')); setName(''); onDone(); } catch (err) { fail(err); } }}>
         <Field label={t('Criar uma organização')} htmlFor="org-new"><input id="org-new" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('Nome da empresa')} /></Field>
         <Button type="submit" variant="primary" disabled={name.trim().length < 2 || !verified}>{t('Criar')}</Button>
       </form>
-      <form className="row wrap" onSubmit={async (e) => { e.preventDefault(); try { await org('POST', '/v1/orgs/invites/accept', { token: token.trim() }); toast(t('Entraste na organização.')); setToken(''); onDone(); } catch (err) { fail(err); } }}>
+      <form className="row wrap form-row" onSubmit={async (e) => { e.preventDefault(); try { await org('POST', '/v1/orgs/invites/accept', { token: token.trim() }); toast(t('Entraste na organização.')); setToken(''); onDone(); } catch (err) { fail(err); } }}>
         <Field label={t('Tenho um convite')} htmlFor="org-inv" hint={t('Cola o código do convite que recebeste por email.')}><input id="org-inv" className="input mono" value={token} onChange={(e) => setToken(e.target.value)} /></Field>
         <Button type="submit" disabled={token.trim().length < 10 || !verified}>{t('Aceitar')}</Button>
       </form>
@@ -92,9 +93,9 @@ function Members({ org: o, admin, owner, fail, setError, reload, toast }) {
             <span className="col" style={{ gap: 0 }}><strong>{m.name || m.email}</strong><span className="muted" style={{ fontSize: 12 }}>{m.email}</span></span>
             <span className="row" style={{ gap: 8 }}>
               {owner && m.role !== 'owner' ? (
-                <select className="select" aria-label={`${t('Função de')} ${m.email}`} value={m.role} onChange={(e) => act(() => org('PATCH', `/v1/orgs/${o.id}/members/${m.user_id}`, { role: e.target.value }), t('Guardado.'))}>
-                  <option value="member">{t(ROLE.member)}</option><option value="admin">{t(ROLE.admin)}</option>
-                </select>
+                <Dropdown label={`${t('Função de')} ${m.email}`} value={m.role}
+                  options={['member', 'admin'].map(id => ({ id, label: t(ROLE[id]) }))}
+                  onChange={role => act(() => org('PATCH', `/v1/orgs/${o.id}/members/${m.user_id}`, { role }), t('Guardado.'))} />
               ) : <span className="tag">{t(ROLE[m.role])}</span>}
               {((admin && m.role !== 'owner') || m.email === me) && m.role !== 'owner' && (
                 <Button size="sm" onClick={() => act(() => org('DELETE', `/v1/orgs/${o.id}/members/${m.user_id}`), m.email === me ? t('Saíste da organização.') : t('Membro removido.'))}>{m.email === me ? t('Sair') : t('Remover')}</Button>
@@ -111,9 +112,9 @@ function Members({ org: o, admin, owner, fail, setError, reload, toast }) {
               <Button size="sm" onClick={() => act(() => org('DELETE', `/v1/orgs/${o.id}/invites/${i.id}`), t('Convite cancelado.'))}>{t('Cancelar')}</Button>
             </div>
           ))}
-          <form className="row wrap" onSubmit={(e) => { e.preventDefault(); act(async () => { const r = await org('POST', `/v1/orgs/${o.id}/invites`, { email: email.trim(), role }); setShown({ email: r.email, token: r.token }); setEmail(''); }); }}>
+          <form className="row wrap form-row" onSubmit={(e) => { e.preventDefault(); act(async () => { const r = await org('POST', `/v1/orgs/${o.id}/invites`, { email: email.trim(), role }); setShown({ email: r.email, token: r.token }); setEmail(''); }); }}>
             <Field label={t('Convidar por email')} htmlFor="org-mail"><input id="org-mail" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-            <Field label={t('Função')} htmlFor="org-role"><select id="org-role" className="select" value={role} onChange={(e) => setRole(e.target.value)}><option value="member">{t(ROLE.member)}</option><option value="admin">{t(ROLE.admin)}</option></select></Field>
+            <Field label={t('Função')} htmlFor="org-role"><Dropdown id="org-role" label={t('Função')} value={role} onChange={setRole} options={['member', 'admin'].map(id => ({ id, label: t(ROLE[id]) }))} /></Field>
             <Button type="submit" variant="primary" disabled={!/.+@.+\..+/.test(email)}>{t('Convidar')}</Button>
           </form>
         </>

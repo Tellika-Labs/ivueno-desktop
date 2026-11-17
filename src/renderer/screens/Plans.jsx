@@ -1,3 +1,4 @@
+import { useAutoTour } from '../components/Tour.jsx';
 import React, { useState } from 'react';
 import { useT } from '../lib/i18n.js';
 import Icon from '../components/Icon.jsx';
@@ -19,6 +20,7 @@ export default function Plans() {
   const { auth, nav, toast } = useApp();
   const { data, error } = useQuery('plans:list', null, {});
   const { data: waiting } = useQuery('billing:waiting', null, {});
+  useAutoTour('plans', !!data);
   const [kind, setKind] = useState('personal');
   const current = auth.licence.plan;
   const plans = (data || []).filter((p) => p.audience === kind);
@@ -34,7 +36,7 @@ export default function Plans() {
         <header className="col" style={{ gap: 12, alignItems: 'flex-start' }}>
           <h1 className="display">{t("Planos")}</h1>
           <p className="muted" style={{ maxWidth: 520 }}>{t("As reuniões ficam sempre guardadas no teu computador. O áudio e o texto só são enviados para transcrever e escrever as notas, e nada fica guardado no servidor.")}</p>
-          <Seg label={t("Tipo de plano")} value={kind} onChange={setKind} options={[{ id: 'personal', label: 'Pessoal' }, { id: 'enterprise', label: 'Empresa' }]} />
+          <div data-tour="plans-kind"><Seg label={t("Tipo de plano")} value={kind} onChange={setKind} options={[{ id: 'personal', label: 'Pessoal' }, { id: 'enterprise', label: 'Empresa' }]} /></div>
         </header>
         <div className="page-scroll">
         {error && <Banner tone="error" role="alert">{friendly(error)}</Banner>}
@@ -43,7 +45,7 @@ export default function Plans() {
             {t('Tens um pagamento por concluir: {name}, {amount}.', { name: PLAN_NAMES[waiting.plan] || waiting.plan, amount: kz(waiting.amount) })}
           </Banner>
         )}
-        <div className="plan-grid">
+        <div className="plan-grid" data-tour="plans-grid">
           {plans.map((p) => (
             <div key={p.id} className={`plan ${p.id === current ? 'current' : ''}`}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -53,7 +55,7 @@ export default function Plans() {
               <div><span className="price">{p.price_aoa_month ? kz(p.price_aoa_month) : p.price_usd_month === 0 ? kz(0) : t('Sob consulta')}</span>
                 <span className="muted">{p.price_aoa_month ? (p.per_seat ? t(' /lugar/mês') : t(' /mês')) : ''}</span></div>
               <span className="muted" style={{ minHeight: 40 }}>{t(PITCH[p.id] || p.description)}</span>
-              <Button variant={p.id === current || p.id === 'free' ? '' : 'primary'} disabled={p.id === current || p.id === 'free'} onClick={() => choose(p)}>
+              <Button variant={p.id === current || p.id === 'free' ? '' : 'primary'} data-tour={p.id !== current && p.id !== 'free' && p.price_aoa_month ? 'plans-upgrade' : undefined} disabled={p.id === current || p.id === 'free'} onClick={() => choose(p)}>
                 {p.id === current ? t('O teu plano') : p.id === 'free' ? t('Plano gratuito') : !p.price_aoa_month ? t('Falar connosco') : t('Passar para {name}', { name: p.name })}
               </Button>
               <ul>
@@ -63,7 +65,7 @@ export default function Plans() {
             </div>
           ))}
         </div>
-        <span className="muted" style={{ textAlign: 'center', fontSize: 12 }}>{t("Preços em Kwanza, por mês, IVA incluído. Sem renovação automática: avisamos-te antes de acabar.")}</span>
+        <span className="muted" data-tour="plans-note" style={{ textAlign: 'center', fontSize: 12 }}>{t("Preços em Kwanza, por mês, IVA incluído. Sem renovação automática: avisamos-te antes de acabar.")}</span>
         </div>
       </div>
     </div>

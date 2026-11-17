@@ -17,7 +17,7 @@ const people = (repo, id) => Object.keys(repo.getMeeting(id).speakers).filter((k
  * `lines(piece, index)` answers what the speech service would return for a piece: [{start_ms, end_ms, text}] (or throws).
  * `voices` stands in for the voice step: identify(job) -> {voices, assignments}.
  */
-function setup({ ready = true, lines, voiceModel = true, identify, summarize } = {}) {
+function setup({ ready = true, lines, voiceModel = true, identify, summarize, resultLanguage } = {}) {
   const { repo } = newRepo();
   const demo = new DemoEngine({ stepMs: 10 });
   const session = new Session({ repo, engine: demo, doneLingerMs: 10 });
@@ -28,7 +28,7 @@ function setup({ ready = true, lines, voiceModel = true, identify, summarize } =
       const i = asked.length; asked.push(req);
       const out = lines ? lines(req, i) : [{ start_ms: 0, end_ms: 4000, text: `Frase número ${i}.` }, { start_ms: 5000, end_ms: 9000, text: `Segunda frase ${i}.` }];
       if (out instanceof Error) throw out;
-      return { segments: out };
+      return { segments: out, language: resultLanguage };
     },
     summarize: summarize || (async (req) => ({ text: `resumo(${req.scope},${req.style},${req.language})`, engine: 'llm', model: 'm' })),
   };
@@ -52,6 +52,25 @@ function setup({ ready = true, lines, voiceModel = true, identify, summarize } =
 }
 const begin = (h, over = {}) => h['import:begin']({ fileName: 'reuniao_com_banco.mp3', durationMs: 60000, rights: 'confirmed', ...over });
 const piece = (h, id, over = {}) => h['import:piece']({ id, startMs: 0, durationMs: 30000, mime: 'audio/mpeg', data: Buffer.from('audio'), ...over });
+
+for (const [language, detected] of [['fr', 'french'], ['es', 'spanish']]) {
+  test(`${language}: imports persist detected language and automatic detection overrides global language`, async () => {
+    const s = setup({ resultLanguage: detected });
+    s.repo.patchSettings({ language: 'pt' });
+    const first = await begin(s.h, { language, separateVoices: false });
+    await piece(s.h, first.id);
+    assert.equal(s.asked[0].language, language);
+    assert.equal(s.repo.getMeeting(first.id).segments[0].language, detected);
+    const summary = await s.h['meetings:summarize']({ id: first.id });
+    assert.equal(summary.text, `resumo(meeting,normal,${language})`);
+    await s.h['import:cancel']({ id: first.id });
+    const second = await begin(s.h, { language: 'auto', separateVoices: false });
+    await piece(s.h, second.id);
+    assert.equal(s.asked[1].language, 'auto');
+    assert.equal(s.repo.getMeeting(second.id).segments[0].language, detected);
+    await s.h['import:cancel']({ id: second.id });
+  });
+}
 
 test('a file becomes a meeting: lines at the right times, voices told apart, notes written, consent recorded', async () => {
   const s = setup();
@@ -83,7 +102,7 @@ test('what the speech service is asked: the audio as it is, its length, the lang
   await piece(s.h, b.id, { startMs: 0, durationMs: 45500, mime: 'video/mp4', data });
   const req = s.asked[0];
   assert.equal(req.mime, 'video/mp4'); assert.equal(req.seconds, 45.5); assert.equal(req.language, 'pt'); assert.deepEqual(Buffer.from(req.data), data);
-  assert.match(req.prompt, /^Rui Costa, Maria Lopes, kwanzas, Multicaixa Express/);
+  assert.equal(req.prompt, 'Rui Costa, Maria Lopes');
   assert.ok(req.prompt.length <= 380);
   await s.h['import:cancel']({ id: b.id });
 });

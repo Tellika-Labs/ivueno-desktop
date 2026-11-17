@@ -1,0 +1,31 @@
+# Builds the unsigned macOS installer (.dmg). Run it by hand: Actions > Build macOS installer > Run workflow.
+# No Apple Developer ID yet, so the app is not signed or notarized: on first open, right-click the app > Open.
+name: Build macOS installer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dmg:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest        # Apple Silicon (M1/M2/M3...)
+            label: apple-silicon
+          - runner: macos-15-intel      # Intel Macs
+            label: intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ivueno-mac-${{ matrix.label }}
+          path: release/*.dmg
+          if-no-files-found: error

@@ -2,7 +2,7 @@
 <html lang="pt-AO">
 <head>
 <meta charset="utf-8">
-<title>Ivuenu · Planos</title>
+<title>Ivueno · Planos</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -48,7 +48,7 @@ a:focus-visible,button:focus-visible{outline:2px solid #1E6A58;outline-offset:2p
 <thead><tr style="text-align: left; background: #F7F5F2"><th scope="col" style="padding: 12px 20px; font-weight: 600; color: #57524B">Funcionalidade</th><th scope="col" style="padding: 12px 16px; font-weight: 700">Gratuito <span style="font-size: 12px; font-weight: 600; color: #17554A">· atual</span></th><th scope="col" style="padding: 12px 16px; font-weight: 700">Pro</th><th scope="col" style="padding: 12px 16px; font-weight: 700">Pro + Nuvem</th></tr></thead>
 <tbody>
 <tr style="border-top: 1px solid #E2DDD5"><th scope="row" style="padding: 12px 20px; font-weight: 400; text-align: left">Reuniões por mês</th><td style="padding: 12px 16px">10</td><td style="padding: 12px 16px">Sem limite</td><td style="padding: 12px 16px">Sem limite</td></tr>
-<tr style="border-top: 1px solid #E2DDD5"><th scope="row" style="padding: 12px 20px; font-weight: 400; text-align: left">Notas da Ivuenu e tarefas</th><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td></tr>
+<tr style="border-top: 1px solid #E2DDD5"><th scope="row" style="padding: 12px 20px; font-weight: 400; text-align: left">Notas da Ivueno e tarefas</th><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td></tr>
 <tr style="border-top: 1px solid #E2DDD5"><th scope="row" style="padding: 12px 20px; font-weight: 400; text-align: left">Ajudas ao vivo e conversa</th><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td></tr>
 <tr style="border-top: 1px solid #E2DDD5"><th scope="row" style="padding: 12px 20px; font-weight: 400; text-align: left">Pontos cegos e Treina-me</th><td style="padding: 12px 16px; color: #57524B">Não</td><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td></tr>
 <tr style="border-top: 1px solid #E2DDD5"><th scope="row" style="padding: 12px 20px; font-weight: 400; text-align: left">Receitas próprias</th><td style="padding: 12px 16px; color: #57524B">Não</td><td style="padding: 12px 16px">Sim</td><td style="padding: 12px 16px">Sim</td></tr>
@@ -64,7 +64,7 @@ a:focus-visible,button:focus-visible{outline:2px solid #1E6A58;outline-offset:2p
 <h2 style="margin: 0; font-size: 13px; font-weight: 700; color: #57524B; text-transform: uppercase; letter-spacing: .04em">Folha de upgrade · aberta de “Pontos cegos”</h2>
 <div role="dialog" aria-labelledby="up-t" style="background: #FFFEFC; border: 1px solid #E2DDD5; border-radius: 10px; box-shadow: 0 16px 48px rgba(31,29,26,.12); padding: 24px; display: flex; flex-direction: column; gap: 14px">
 <div style="display: flex; justify-content: space-between; align-items: center"><h3 id="up-t" style="margin: 0; font-size: 18px; font-weight: 700">Pontos cegos está no Pro</h3><button aria-label="Fechar" style="width: 36px; height: 36px; border: 0; background: transparent; border-radius: 8px; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F1D1A" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>
-<p style="margin: 0; color: #57524B">Depois da reunião, a Ivuenu mostra o que ficou por discutir: riscos que ninguém levantou, números sem fonte, decisões sem dono. Corre neste computador.</p>
+<p style="margin: 0; color: #57524B">Depois da reunião, a Ivueno mostra o que ficou por discutir: riscos que ninguém levantou, números sem fonte, decisões sem dono. Corre neste computador.</p>
 <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border: 1.5px solid #1E6A58; border-radius: 8px"><span style="display: flex; flex-direction: column"><strong>Pro</strong><span style="font-size: 13px; color: #57524B">Reuniões sem limite, todas as ajudas, receitas tuas</span></span><span><strong style="font-size: 20px">$12</strong><span style="color: #57524B">/mês</span></span></div>
 <button style="height: 44px; border-radius: 8px; border: 0; background: #1E6A58; color: #FFFEFC; font-size: 15px; font-weight: 600">Passar para o Pro</button>
 <a href="#" style="align-self: center; font-size: 13px; font-weight: 600">Comparar todos os planos</a>
@@ -95,7 +95,7 @@ class Component extends DCLogic {
     const btnSecondary = 'height: 40px; border-radius: 8px; border: 1px solid #CFC8BD; background: #FFFEFC; color: #1F1D1A; font-size: 14px; font-weight: 600';
     const btnCurrent = 'height: 40px; border-radius: 8px; border: 1px solid #E2DDD5; background: #F7F5F2; color: #57524B; font-size: 14px; font-weight: 600';
     const P = k === 'personal' ? [
-      { name: 'Gratuito', price: '$0', unit: '', pitch: 'Para experimentar com as tuas reuniões.', cta: 'Plano atual', current: true, features: ['10 reuniões por mês', 'Notas da Ivuenu, tarefas e conversa', 'Ajudas ao vivo', 'Tudo no teu computador'] },
+      { name: 'Gratuito', price: '$0', unit: '', pitch: 'Para experimentar com as tuas reuniões.', cta: 'Plano atual', current: true, features: ['10 reuniões por mês', 'Notas da Ivueno, tarefas e conversa', 'Ajudas ao vivo', 'Tudo no teu computador'] },
       { name: 'Pro', price: '$12', unit: ' /mês', pitch: 'Para quem tem reuniões todos os dias.', cta: 'Passar para o Pro', current: false, primary: true, features: ['Reuniões sem limite', 'Pontos cegos e Treina-me', 'Receitas próprias', 'Tudo no teu computador'] },
       { name: 'Pro + Nuvem', price: '$22', unit: ' /mês', pitch: 'Para computadores sem placa gráfica ou uso no browser.', cta: 'Passar para Pro + Nuvem', current: false, features: ['Tudo do Pro', 'Transcrição na nuvem, quando escolhes', 'Acesso no browser e no telemóvel'] }
     ] : [

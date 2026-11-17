@@ -1,3 +1,4 @@
+import { track } from '../lib/telemetry.js';
 import React, { useEffect, useState } from 'react';
 import { useT } from '../lib/i18n.js';
 import Icon from '../components/Icon.jsx';
@@ -7,11 +8,16 @@ import { useQuery } from '../lib/hooks.js';
 import { call } from '../lib/bridge.js';
 import { listMics } from '../lib/audio.js';
 import { friendly } from '../lib/errors.mjs';
+import { useAutoTour } from '../components/Tour.jsx';
+import spokenLanguages from '../../shared/spoken-languages.json';
+import LanguageDropdown from '../components/LanguageDropdown.jsx';
+import Dropdown from '../components/Dropdown.jsx';
 
-const LANG_LABEL = { auto: 'Idioma: automático', pt: 'Idioma: português', en: 'Idioma: English' };
+const LANG_LABEL = { auto: 'Idioma: automático', pt: 'Idioma: português', en: 'Idioma: English', fr: 'Idioma: français', es: 'Idioma: español' };
 
 /** "Nova reunião": a title, a few optional settings, and the one consent reminder. Both answers start recording. */
 export default function StartDialog({ prefill, onClose, onStarted }) {
+  useAutoTour('start');
   const t = useT();
   const { settings, nav, patchSettings } = useApp();
   const folders = useQuery('folders:list', null, { kinds: ['folders'] });
@@ -49,8 +55,9 @@ export default function StartDialog({ prefill, onClose, onStarted }) {
         consent,
         input: { place, title: title.trim(), folderId: folderId || null, template, language: language === 'auto' ? null : language, translateTo: translateTo || null, keepTranscript: keep, redact: hide, attendees, calendarEventId: prefill.calendarEventId || null },
       });
+      track('feature', { name: 'meeting_start', place, consent, template, ok: true });
       onStarted();
-    } catch (err) { setError(err); setBusy(false); }
+    } catch (err) { track('feature', { name: 'meeting_start', place, consent, template, ok: false, code: err && err.code }); setError(err); setBusy(false); }
   }
 
   const blocked = error && (error.code === 'limit_reached' || error.code === 'plan_required');
@@ -58,15 +65,15 @@ export default function StartDialog({ prefill, onClose, onStarted }) {
   return (
     <Dialog title={t("Nova reunião")} onClose={onClose}>
       <div className="dialog-body">
-        <Field label={t("Título")} optional htmlFor="sd-name" hint={prefill.subtitle}>
+        <div data-tour="start-title"><Field label={t("Título")} optional htmlFor="sd-name" hint={prefill.subtitle}>
           <input id="sd-name" className="input" style={{ height: 40, fontSize: 15 }} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </Field>
+        </Field></div>
 
-        <Field label={t('Onde estão as pessoas?')} hint={place === 'room' ? t('Só o microfone. No fim separamos as vozes de cada pessoa.') : t('O microfone e o som do computador.')}>
+        <div data-tour="start-place"><Field label={t('Onde estão as pessoas?')} hint={place === 'room' ? t('Só o microfone. No fim separamos as vozes de cada pessoa.') : t('O microfone e o som do computador.')}>
           <Seg label={t('Onde estão as pessoas?')} value={place} onChange={setPlace} options={[{ id: 'room', label: t('Na mesma sala') }, { id: 'online', label: t('Em chamada') }, { id: 'both', label: t('Os dois') }]} />
-        </Field>
+        </Field></div>
 
-        <div className="row wrap" style={{ gap: 6 }}>
+        <div className="row wrap" data-tour="start-opts" style={{ gap: 6 }}>
           <span className="tag">{t(LANG_LABEL[language])}</span>
           <span className="tag">{t('Notas: {style}', { style: t(TEMPLATE_NAMES[template]) })}</span>
           {folderId && folders.data && <span className="tag">{(folders.data.find((f) => f.id === folderId) || {}).name}</span>}
@@ -81,25 +88,22 @@ export default function StartDialog({ prefill, onClose, onStarted }) {
           <div id="sd-options" className="options">
             <div className="grid-auto">
               <Field label={t("Pasta")} htmlFor="sd-folder">
-                <select id="sd-folder" className="select" value={folderId} onChange={(e) => setFolderId(e.target.value)}>
-                  <option value="">{t("Sem pasta")}</option>
-                  {(folders.data || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
+                <Dropdown id="sd-folder" label={t('Pasta')} icon="folder" value={folderId} onChange={setFolderId}
+                  options={[{ id: '', label: t('Sem pasta') }, ...(folders.data || []).map(f => ({ id: f.id, label: f.name }))]} />
               </Field>
               <Field label={t("Estilo das notas")} htmlFor="sd-style">
-                <select id="sd-style" className="select" value={template} onChange={(e) => setTemplate(e.target.value)}>
-                  {Object.entries(TEMPLATE_NAMES).map(([id, label]) => <option key={id} value={id}>{t(label)}</option>)}
-                </select>
+                <Dropdown id="sd-style" label={t('Estilo das notas')} value={template} onChange={setTemplate}
+                  options={Object.entries(TEMPLATE_NAMES).map(([id, label]) => ({ id, label: t(label) }))} />
               </Field>
             </div>
             <div className="row wrap" style={{ gap: 12, alignItems: 'flex-end' }}>
               <Field label={t("Idioma falado")}>
-                <Seg label={t("Idioma falado")} value={language} onChange={setLanguage} options={[{ id: 'auto', label: t('Automático') }, { id: 'pt', label: 'Português' }, { id: 'en', label: 'English' }]} />
+                <LanguageDropdown label={t('Idioma falado')} value={language} onChange={setLanguage}
+                  options={[{ id: 'auto', label: t('Automático') }, ...spokenLanguages]} />
               </Field>
-              <Field label={t("Traduzir para")} htmlFor="sd-tr">
-                <select id="sd-tr" className="select" style={{ minWidth: 160 }} value={translateTo} onChange={(e) => setTranslateTo(e.target.value)}>
-                  <option value="">{t("Não traduzir")}</option><option value="pt">Português</option><option value="en">English</option>
-                </select>
+                <Field label={t("Traduzir as notas para")} htmlFor="sd-tr">
+                <LanguageDropdown id="sd-tr" label={t('Traduzir as notas para')} value={translateTo} onChange={setTranslateTo}
+                  options={[{ id: '', label: t('Idioma da reunião') }, ...spokenLanguages]} />
               </Field>
             </div>
             <Field label={t("Participantes")} htmlFor="sd-att">
@@ -129,13 +133,13 @@ export default function StartDialog({ prefill, onClose, onStarted }) {
             <span className="body">{friendly(error)}</span>
           </Banner>
         )}
-        <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+        <div className="row" data-tour="start-notice" style={{ alignItems: 'center', gap: 8 }}>
           <Icon name="shieldCheck" size={18} style={{ color: 'var(--accent)', flex: 'none' }} />
           <strong style={{ fontSize: 14 }}>{t("Avisa os participantes que estão a ser gravados.")}</strong>
         </div>
         <div className="row wrap" style={{ justifyContent: 'space-between', gap: 10 }}>
           <span className="muted" style={{ fontSize: 12, flex: '1 1 220px' }}>{t("Os dois botões começam a gravar. “Só eu” é para notas pessoais, sem mais ninguém. A tua resposta fica no registo de consentimento.")}</span>
-          <span className="row" style={{ gap: 8 }}>
+          <span className="row" data-tour="start-go" style={{ gap: 8 }}>
             <Button disabled={busy} onClick={() => begin('solo')}>{t("Só eu")}</Button>
             <Button variant="primary" disabled={busy} onClick={() => begin('confirmed')}>{t("Já avisei")}</Button>
           </span>

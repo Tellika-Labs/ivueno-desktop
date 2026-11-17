@@ -1,13 +1,16 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { track } from './lib/telemetry.js';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { translate } from './lib/i18n.js';
 import { setFormatLang } from './lib/format.mjs';
-import { setErrorLang } from './lib/errors.mjs';
+import { setErrorLang, friendly } from './lib/errors.mjs';
 import { AppContext } from './lib/app-context.js';
 import { call, on, send } from './lib/bridge.js';
 import { useRecState } from './lib/hooks.js';
 import { startMeter, audioBus } from './lib/audio.js';
 import { webmToPcm16 } from './lib/pcm.mjs';
 import Sidebar from './components/Sidebar.jsx';
+import Icon from './components/Icon.jsx';
+import { TourProvider } from './components/Tour.jsx';
 import { Banner, Toast, Button, Skeleton } from './components/ui.jsx';
 import Auth from './screens/Auth.jsx';
 import LangSelect from './components/LangSelect.jsx';
@@ -29,7 +32,28 @@ export default function App() {
   const [start, setStart] = useState(null);                 // null = closed, object = open with prefill
   const [message, setMessage] = useState('');
   const [audioErrors, setAudioErrors] = useState([]);
+  const [update, setUpdate] = useState(null);               // a new version downloaded and waiting for a restart (updater.js)
+  useEffect(() => {
+    call('update:status').then((s) => { if (s && s.phase === 'ready') setUpdate(s); }).catch(() => {});
+    return on('update:state', (s) => setUpdate(s && s.phase === 'ready' ? s : null));
+  }, []);
+  const [sideOpen, setSideOpen] = useState(() => { try { return localStorage.getItem('ivuenu.sidebar') !== 'closed'; } catch { return true; } });
+  const toggleSide = useCallback(() => setSideOpen((open) => {
+    try { localStorage.setItem('ivuenu.sidebar', open ? 'closed' : 'open'); } catch { /* storage unavailable: just don't remember it */ }
+    return !open;
+  }), []);
   const rec = useRecState();
+  // which screen is open and for how long (never anything on it)
+  const screenName = !boot.loading && !boot.failed ? (!boot.onboarded ? 'onboarding' : !boot.auth || !boot.auth.signedIn ? 'auth' : route.name) : null;
+  const shown = useRef(null);
+  useEffect(() => {
+    if (!screenName) return undefined;
+    const before = shown.current;
+    if (before && before.name !== screenName) track('screen_time', { screen: before.name, ms: Date.now() - before.at });
+    if (!before || before.name !== screenName) { track('screen_view', { screen: screenName, from: before ? before.name : undefined }); shown.current = { name: screenName, at: Date.now() }; }
+    return undefined;
+  }, [screenName]);
+  useEffect(() => () => { const s = shown.current; if (s) track('screen_time', { screen: s.name, ms: Date.now() - s.at }); }, []);
   const lang = (settings && settings.appLanguage) || 'pt';
   const t = useCallback((key, vars) => translate(lang, key, vars), [lang]);
   const toastTimer = useRef(null);
@@ -56,7 +80,7 @@ export default function App() {
 
   // words made outside React (dates, error messages) follow the language too
   setFormatLang(lang); setErrorLang(lang);
-  useEffect(() => { if (settings) document.documentElement.lang = settings.appLanguage === 'en' ? 'en' : 'pt-AO'; }, [settings && settings.appLanguage]);
+  useEffect(() => { if (settings) document.documentElement.lang = { pt: 'pt-AO', en: 'en', fr: 'fr' }[settings.appLanguage] || 'pt-AO'; }, [settings && settings.appLanguage]);
 
   const patchSettings = useCallback(async (patch) => { setSettings(await call('settings:patch', patch)); }, []);
 
@@ -78,7 +102,7 @@ export default function App() {
       micId, captureSystem, onLevels: (l) => { send('rec:levels', l); audioBus.emit(l); },
       onChunk: needsAudio ? (chunk) => call('audio:chunk', chunk).catch(() => {}) : null, format: audioFormat,
       onBlock: archiveOn ? (block) => call('audio:block', block).catch(() => {}) : null, offsetMs: recRef.current ? recRef.current.elapsedMs : 0,
-      expectSystem: place === 'online', onWarn: (w) => setAudioErrors((e) => (e.includes(w) ? e : [...e, w])),
+      rawMic: place === 'room', expectSystem: place === 'online', onWarn: (w) => setAudioErrors((e) => (e.includes(w) ? e : [...e, w])),
     }).then((m) => { if (stopped) m.stop(); else { meter = m; meterRef.current = m; setAudioErrors(m.errors); } });
     return () => {
       stopped = true; meterRef.current = null; if (meter) meter.stop();
@@ -112,13 +136,13 @@ export default function App() {
   const nav = useCallback((name, params = {}) => setRoute({ name, ...params }), []);
   const openStart = useCallback((prefill = {}) => setStart(prefill), []);
   const logout = useCallback(async () => {
-    try { await call('auth:logout'); await refreshAuth(); setRoute({ name: 'home' }); } catch (e) { toast(e.message); }
+    try { await call('auth:logout'); await refreshAuth(); setRoute({ name: 'home' }); } catch (e) { toast(friendly(e)); }
   }, [refreshAuth, toast]);
 
+  if (boot.failed) return <Frame><div className="center-page"><Banner tone="error" role="alert">{t("Não foi possível iniciar a Ivueno. Fecha e abre outra vez.")}</Banner></div></Frame>;
   if (boot.loading || !settings) {
     return <Frame><div className="center-page"><div style={{ width: 320, display: 'flex', flexDirection: 'column', gap: 12 }}><Skeleton h={20} w={120} /><Skeleton /><Skeleton w="70%" /></div></div></Frame>;
   }
-  if (boot.failed) return <Frame><div className="center-page"><Banner tone="error" role="alert">{t("Não foi possível iniciar a Ivuenu. Fecha e abre outra vez.")}</Banner></div></Frame>;
 
   const ctx = {
     settings, patchSettings, auth: boot.auth, info: boot.info, refreshAuth, rec, route, nav, openStart, toast, logout, audioErrors,
@@ -140,15 +164,26 @@ export default function App() {
   return (
     <AppContext.Provider value={ctx}>
       <Frame>
+      <TourProvider>
       <div className="shell">
-        <Sidebar />
+        <div className={`side-wrap${sideOpen ? '' : ' closed'}`}>
+          <div className="side-clip" aria-hidden={!sideOpen} inert={sideOpen ? undefined : ''}><Sidebar /></div>
+          <button type="button" className="side-toggle" data-tour="side-toggle" aria-expanded={sideOpen} aria-label={t(sideOpen ? 'Esconder barra lateral' : 'Mostrar barra lateral')} title={t(sideOpen ? 'Esconder barra lateral' : 'Mostrar barra lateral')} onClick={toggleSide}><Icon name="back" size={16} stroke={2} /></button>
+        </div>
         <main className="main" id="main">
+          {idle && update && (
+            <div className="licence-banner" style={{ padding: '40px clamp(16px, 4vw, 56px) 0' }}>
+              <Banner tone="info" action={<Button size="sm" onClick={() => call('update:install').catch((e) => toast(friendly(e)))}>{t("Reiniciar e atualizar")}</Button>}>
+                {t('Há uma versão nova da Ivueno ({v}). As tuas reuniões ficam todas aqui.', { v: update.version || '' })}
+              </Banner>
+            </div>
+          )}
           {idle && (lic.state === 'renew' || lic.state === 'expired' || lic.state === 'invalid') && (
-            <div style={{ padding: '12px clamp(16px, 4vw, 56px) 0' }}>
-              <Banner tone="warn" action={<Button size="sm" onClick={() => call('licence:refresh').then((s) => setBoot((b) => ({ ...b, auth: { ...b.auth, licence: s } }))).catch((e) => toast(e.message))}>{t("Verificar agora")}</Button>}>
+            <div className="licence-banner" style={{ padding: '40px clamp(16px, 4vw, 56px) 0' }}>   {/* clear of Windows' window buttons (32 px) */}
+              <Banner tone="warn" action={<Button size="sm" onClick={() => call('licence:refresh').then((s) => setBoot((b) => ({ ...b, auth: { ...b.auth, licence: s } }))).catch((e) => toast(friendly(e)))}>{t("Verificar agora")}</Button>}>
                 {lic.state === 'expired' || lic.state === 'invalid'
-                  ? t('Liga-te à internet para continuar a usar a Ivuenu. As tuas reuniões continuam todas aqui.')
-                  : t(lic.daysLeft === 1 ? 'Liga-te à internet para continuar a usar a Ivuenu. Falta {n} dia. As tuas reuniões continuam todas aqui.' : 'Liga-te à internet para continuar a usar a Ivuenu. Faltam {n} dias. As tuas reuniões continuam todas aqui.', { n: lic.daysLeft })}
+                  ? t('Liga-te à internet para continuar a usar a Ivueno. As tuas reuniões continuam todas aqui.')
+                  : t(lic.daysLeft === 1 ? 'Liga-te à internet para continuar a usar a Ivueno. Falta {n} dia. As tuas reuniões continuam todas aqui.' : 'Liga-te à internet para continuar a usar a Ivueno. Faltam {n} dias. As tuas reuniões continuam todas aqui.', { n: lic.daysLeft })}
               </Banner>
             </div>
           )}
@@ -157,6 +192,7 @@ export default function App() {
         {start && <StartDialog prefill={start} onClose={() => setStart(null)} onStarted={() => { setStart(null); nav('live'); }} />}
         <Toast message={message} />
       </div>
+      </TourProvider>
       </Frame>
     </AppContext.Provider>
   );

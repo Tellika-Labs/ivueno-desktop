@@ -1,3 +1,5 @@
+import { track } from '../lib/telemetry.js';
+import { useAutoTour } from '../components/Tour.jsx';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../lib/i18n.js';
 import Icon from '../components/Icon.jsx';
@@ -8,6 +10,7 @@ import { call } from '../lib/bridge.js';
 import { friendly } from '../lib/errors.mjs';
 import { PITCH, day, money } from '../lib/pay.js';
 import VerifyEmail from './VerifyEmail.jsx';
+import HostedCheckout from '../components/HostedCheckout.jsx';
 
 const PHONE = /^9\d{8}$/;
 const SCENARIOS = ['sucesso', 'recusado', 'expirou', 'saldo', 'indisponivel', 'por-confirmar'];
@@ -32,8 +35,11 @@ function stepOf(attempt, intent) {
   if (attempt.requires_manual_review) return 'unknown';
   if (attempt.status === 'pending') {
     if (attempt.reference) return 'refIssued';
+    // WiPay owns the payment window. Keep its existing page available while our
+    // local waiting period elapses; only a provider result closes this attempt.
+    if (attempt.method === 'wipay' && attempt.checkout_url) return 'hosted';
     if (attempt.confirming) return 'unknown';
-    if (attempt.method === 'wipay') return attempt.checkout_url ? 'hosted' : 'sending';       // the page comes a moment after the request
+    if (attempt.method === 'wipay') return 'sending';
     return attempt.submitted ? 'waiting' : 'sending';
   }
   if (attempt.status === 'failed' || attempt.status === 'expired') return 'failed';
@@ -54,15 +60,16 @@ export default function Checkout() {
   const [tried, setTried] = useState(false);
   const [scenario, setScenario] = useState('sucesso');
   const [attempt, setAttempt] = useState(null);
-  const [step, setStep] = useState('loading');            // loading | verify | unavailable | form | sending | waiting | refIssued | success | failed | unknown | error
+  const [step, setStep] = useState('loading');
+  useAutoTour('checkout', step === 'form');            // loading | verify | unavailable | form | sending | waiting | refIssued | success | failed | unknown | error
   const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
   const [secs, setSecs] = useState(0);
   const [window_, setWindow] = useState(0);
   const [asked, setAsked] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const tick = useRef(0);
-  const opened = useRef('');                               // the attempt whose WiPay page was already opened for the person
   const planInfo = (plansQuery.data || []).find((p) => p.id === planId) || null;
   const planName = planInfo ? planInfo.name : (PLAN_NAMES[planId] || planId);
 
@@ -70,6 +77,7 @@ export default function Checkout() {
     setAttempt(att); setIntent(int);
     const next = stepOf(att, int);
     setStep(next);
+    if (att && ['success', 'failed', 'refIssued', 'waiting', 'hosted'].includes(next)) track('payment', { stage: next, method: att.method, plan: int && int.plan, status: att.status, reason: att.reason || undefined });
     if (att && att.status === 'pending' && !att.reference) { setSecs(att.seconds_left); setWindow((w) => Math.max(w, att.seconds_left)); }
     if (next === 'success') refreshAuth();
   }, [refreshAuth]);
@@ -78,6 +86,7 @@ export default function Checkout() {
     setStep('loading'); setError('');
     try {
       const r = await call('billing:checkout', { plan: planId, period: forPeriod });
+      track('payment', { stage: 'form', plan: planId, count: r.methods.length });
       setIntent(r.intent); setMethods(r.methods); setMethod((m) => (r.methods.some((x) => x.id === m) ? m : r.methods[0].id)); setStep('form');
     } catch (e) {
       if (e.code === 'billing_not_configured') setStep('unavailable');
@@ -122,13 +131,6 @@ export default function Checkout() {
     return () => { alive = false; clearInterval(timer); };
   }, [step, attempt && attempt.id, intent && intent.id, apply]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // a hosted checkout opens once, in the person's browser, as soon as its page is known
-  useEffect(() => {
-    if (step !== 'hosted' || !attempt || !attempt.checkout_url || opened.current === attempt.id) return;
-    opened.current = attempt.id;
-    call('billing:openCheckout', { url: attempt.checkout_url }).catch((e) => toast(friendly(e)));
-  }, [step, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // the countdown ring runs locally between looks
   useEffect(() => {
     if (step !== 'waiting') return undefined;
@@ -145,6 +147,7 @@ export default function Checkout() {
     if (isPush && !PHONE.test(digits)) { setTried(true); return; }
     setError(''); setStep('sending'); tick.current = 0; setWindow(0);
     try {
+      track('payment', { stage: 'pay', method, plan: planId });
       const a = await call('billing:pay', { intentId: intent.id, method, phone: isPush ? digits : '', scenario: method === 'mock' ? scenario : undefined });
       setPhone('');                                     // the number is not kept
       apply(a, intent);
@@ -156,6 +159,14 @@ export default function Checkout() {
   }
   async function checkNow() {
     try { const r = await call('billing:attempt', { intentId: intent.id, attemptId: attempt.id, refresh: true }); apply(r.attempt, r.intent); } catch (e) { toast(friendly(e)); }
+  }
+  async function reportPaid() {
+    setReporting(true);
+    try {
+      const r = await call('billing:reportPaid', { intentId: intent.id, attemptId: attempt.id });
+      apply(r.attempt, r.intent);
+    } catch (e) { toast(friendly(e)); }
+    finally { setReporting(false); }
   }
   const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast(t('Copiado')); } catch { /* clipboard blocked */ } };
   async function notifyMe() { try { await call('billing:waitlist', { plan: planId }); setAsked(true); } catch (e) { toast(friendly(e)); } }
@@ -252,7 +263,7 @@ export default function Checkout() {
         )}
         {method === 'wipay' && (
           <div className="co-col co-sep">
-            <p>{t('Abrimos a página segura da WiPay no teu navegador. Lá escolhes como pagar e confirmas. O plano ativa quando a WiPay nos avisar, normalmente em segundos.')}</p>
+            <p>{t('Escolhe como pagar na página segura da WiPay, aqui na aplicação. O plano ativa quando o pagamento for confirmado.')}</p>
             <Button variant="primary" size="lg" className="co-full" onClick={pay}>{t('Pagar {amount} com a WiPay', { amount: total })}</Button>
             <span className="hint">{t('Só és cobrado quando confirmares na página da WiPay.')}</span>
           </div>
@@ -291,7 +302,7 @@ export default function Checkout() {
         </div>
         <ol className="co-steps">
           <li><span className="n">1</span>{t('Abre a app Multicaixa Express')}</li>
-          <li><span className="n">2</span>{t('Toca na notificação de pagamento da Ivuenu')}</li>
+          <li><span className="n">2</span>{t('Toca na notificação de pagamento da Ivueno')}</li>
           <li><span className="n">3</span>{t('Confirma com o teu PIN')}</li>
         </ol>
         {offline
@@ -301,15 +312,13 @@ export default function Checkout() {
     );
   } else if (step === 'hosted' && attempt && attempt.checkout_url) {
     body = (
-      <div className="co-col" role="status" aria-live="polite" style={{ gap: 18 }}>
+      <div className="co-col" style={{ gap: 18 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <h2 className="co-h">{t('Conclui o pagamento na página da WiPay')}</h2>
-          <span className="muted">{t('Abrimos a página no teu navegador. Escolhe como pagar e confirma lá. Esta janela atualiza sozinha quando o pagamento chegar.')}</span>
+          <span className="muted">{t('Escolhe como pagar e confirma abaixo. Esta janela atualiza sozinha quando o pagamento chegar.')}</span>
         </div>
-        <div className="row wrap">
-          <Button variant="primary" onClick={() => call('billing:openCheckout', { url: attempt.checkout_url }).catch((e) => toast(friendly(e)))}>{t('Abrir a página outra vez')}</Button>
-          <Button variant="ghost" onClick={() => nav('home')}>{t('Voltar à Ivuenu')}</Button>
-        </div>
+        <HostedCheckout key={attempt.id} url={attempt.checkout_url} onError={toast} />
+        <Button disabled={reporting} onClick={reportPaid}>{t('Já confirmei o pagamento no telemóvel')}</Button>
         {offline
           ? <Banner tone="warn" role="status">{t('Sem ligação à internet. Se já pagaste, o pagamento conta. Voltamos a verificar quando a ligação voltar. Não pagues outra vez.')}</Banner>
           : <div className="co-status"><i className="co-pulse" />{t('À espera da confirmação. Se já pagaste, não pagues outra vez.')}</div>}
@@ -330,7 +339,7 @@ export default function Checkout() {
         </dl>
         <Banner tone="warn" icon="info">{r.due_at ? t('Válida até {date}. ', { date: `${day(r.due_at)} ${new Date(r.due_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}` }) : ''}{t('O plano ativa quando o pagamento chegar, normalmente em minutos, até 24 horas.')}</Banner>
         <div className="row wrap">
-          <Button variant="primary" onClick={() => nav('home')}>{t('Voltar à Ivuenu')}</Button>
+          <Button variant="primary" onClick={() => nav('home')}>{t('Voltar à Ivueno')}</Button>
           <Button variant="ghost" onClick={giveUpReference}>{t('Escolher outro método')}</Button>
         </div>
       </div>
@@ -348,7 +357,7 @@ export default function Checkout() {
           <div><dt>{t('Método')}</dt><dd>{methodLabel}</dd></div>
           <div><dt>{t('Pago até')}</dt><dd>{day(intent.period_end || intent.paid_until_if_paid_now)}</dd></div>
         </dl>
-        <div className="row"><Button variant="primary" onClick={() => nav('home')}>{t('Voltar à Ivuenu')}</Button></div>
+        <div className="row"><Button variant="primary" onClick={() => nav('home')}>{t('Voltar à Ivueno')}</Button></div>
       </div>
     );
   } else if (step === 'failed') {
@@ -357,10 +366,13 @@ export default function Checkout() {
         <span className="co-icon err"><Svg size={28} width={2.2}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5v5.5M12 16.2v.3" /></Svg></span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <h2 className="co-h">{t(fail[0])}</h2><span className="muted">{t(fail[1], { amount: total })}</span>
-          <span className="co-nocharge">{t('Nada foi cobrado.')}</span>
+          {attempt && attempt.method === 'wipay' && attempt.submitted
+            ? <span className="muted">{t('Se o banco confirmou o pagamento, não pagues outra vez. Pede a verificação abaixo.')}</span>
+            : <span className="co-nocharge">{t('Nada foi cobrado.')}</span>}
         </div>
         <div className="row wrap">
           <Button variant="primary" onClick={() => { setAttempt(null); setStep('form'); }}>{t(fail[2])}</Button>
+          {attempt && attempt.method === 'wipay' && attempt.submitted && <Button disabled={reporting} onClick={reportPaid}>{t('Já confirmei o pagamento no telemóvel')}</Button>}
           {canRef && attempt && attempt.method !== 'emis-reference' && <Button onClick={() => { setMethod('emis-reference'); setAttempt(null); setStep('form'); }}>{t('Pagar com referência')}</Button>}
         </div>
       </div>
@@ -371,13 +383,13 @@ export default function Checkout() {
       <div className="co-col" role="status">
         <span className="co-icon warn"><Svg size={28} width={2}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></Svg></span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <h2 className="co-h">{review ? t('Recebemos o teu pagamento e estamos a verificá-lo') : t('Ainda estamos a confirmar com o banco')}</h2>
+          <h2 className="co-h">{review ? t('Estamos a verificar o teu pagamento') : t('Ainda estamos a confirmar com o banco')}</h2>
           <span className="muted">{review
             ? t('A nossa equipa tem de o verificar antes de ativar o plano. Não pagues outra vez; fala com o suporte se precisares.')
             : t('Se já confirmaste no telemóvel, não pagues outra vez. Continuamos a verificar e enviamos-te um email assim que soubermos, normalmente em menos de 1 hora. Se o pagamento não se confirmar, não és cobrado.')}</span>
         </div>
         <div className="row wrap">
-          <Button variant="primary" onClick={() => nav('home')}>{t('Voltar à Ivuenu')}</Button>
+          <Button variant="primary" onClick={() => nav('home')}>{t('Voltar à Ivueno')}</Button>
           {!review && <Button onClick={checkNow}>{t('Verificar agora')}</Button>}
         </div>
       </div>
@@ -403,10 +415,11 @@ export default function Checkout() {
             <aside className="co-side" aria-labelledby="co-sum">
               <div className="card pad co-sumcard">
                 <h2 id="co-sum" className="co-h" style={{ fontSize: 16 }}>{t('Resumo')}</h2>
-                <span style={{ display: 'flex', flexDirection: 'column' }}><strong style={{ fontSize: 18 }}>{`Ivuenu ${planName}`}</strong><span className="hint">{t(PITCH[planId] || (planInfo && planInfo.description) || '')}</span></span>
+                <span style={{ display: 'flex', flexDirection: 'column' }}><strong style={{ fontSize: 18 }}>{`Ivueno ${planName}`}</strong><span className="hint">{t(PITCH[planId] || (planInfo && planInfo.description) || '')}</span></span>
                 <Seg label={t('Período')} value={period} onChange={changePeriod} options={[{ id: 'month', label: t('Mensal') }, { id: 'year', label: t('Anual · 2 meses grátis') }]} />
                 <dl className="co-sum">
-                  <div><dt>{yearly ? t('{plan} · 12 meses', { plan: planName }) : t('{plan} · 1 mês', { plan: planName })}</dt><dd>{total}</dd></div>
+                  <div><dt>{yearly ? t('{plan} · 12 meses', { plan: planName }) : t('{plan} · 1 mês', { plan: planName })}</dt><dd>{Number(intent.discount_amount) > 0 ? money(Number(intent.amount) + Number(intent.discount_amount)) : total}</dd></div>
+                  {Number(intent.discount_amount) > 0 && <div><dt>{t('Desconto de convite')}</dt><dd>{`-${money(intent.discount_amount)}`}</dd></div>}
                   <div><dt>{t('IVA ({n}%)', { n: intent.vat_percent })}</dt><dd>{t('incluído')}</dd></div>
                   <div className="total"><dt>{t('Total')}</dt><dd>{total}</dd></div>
                 </dl>

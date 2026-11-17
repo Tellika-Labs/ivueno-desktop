@@ -1,7 +1,8 @@
-/* Design tokens from the Ivuenu design system (desktop/project-design/Main.dc.html).
+/* Design tokens from the Ivueno design system (desktop/project-design/Main.dc.html).
    Same token names in both themes. Dark is warm ink, not pure black. Red is reserved for "recording". */
 
 :root {
+  --picker-selected: #B7F5D8;
   --bg: #F7F5F2; --surface: #FFFEFC; --sunken: #EFECE7; --border: #E2DDD5; --border-strong: #CFC8BD;
   --text: #1F1D1A; --text-2: #57524B; --text-3: #6B655C;
   --accent: #1E6A58; --accent-hover: #17554A; --accent-soft: #E2EEE9; --on-accent: #FFFEFC;
@@ -13,11 +14,13 @@
   --on-spk: #FFFEFC;
   --shadow-1: 0 1px 2px rgba(31, 29, 26, .06); --shadow-2: 0 8px 24px rgba(31, 29, 26, .10); --shadow-3: 0 16px 48px rgba(31, 29, 26, .16);
   --r-sm: 6px; --r-md: 8px; --r-lg: 10px;
+  --r-field: 10px 14px 11px 13px;     /* inputs, selects and buttons share this shape */
   --ease: cubic-bezier(.2, 0, 0, 1);
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
+  --picker-selected: #234B3E;
   color-scheme: dark;
   --bg: #151412; --surface: #1C1B19; --sunken: #121110; --border: #312E2A; --border-strong: #45413B;
   --text: #EDE9E3; --text-2: #B9B2A8; --text-3: #A0998F;
@@ -33,6 +36,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --picker-selected: #234B3E;
     color-scheme: dark;
     --bg: #151412; --surface: #1C1B19; --sunken: #121110; --border: #312E2A; --border-strong: #45413B;
     --text: #EDE9E3; --text-2: #B9B2A8; --text-3: #A0998F;

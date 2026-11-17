@@ -39,14 +39,14 @@ test('desktop client against the real backend', { skip: haveBackend ? false : 'b
   const mailDir = tmpDir('ivuenu-mail-');
   const server = spawn(PY, ['-m', 'uvicorn', 'app.main:app', '--port', String(port), '--log-level', 'warning'], {
     cwd: BACKEND, stdio: 'ignore',
-    env: { ...process.env, IVUENU_LLM: 'none', GROQ_API_KEY: '', IVUENU_DATABASE_URL: `sqlite:///${db}`, IVUENU_DEV_ENDPOINTS: 'true', IVUENU_ENV: 'dev', IVUENU_MAIL: 'file', IVUENU_MAIL_DIR: mailDir, IVUENU_PAYMENT_MOCK: 'true', APPYPAY_CHARGES_ENABLED: 'false', IVUENU_STT: 'echo' },
+    env: { ...process.env, IVUENU_LLM: 'none', GROQ_API_KEY: '', IVUENU_DATABASE_URL: `sqlite:///${db}`, IVUENU_DEV_ENDPOINTS: 'true', IVUENU_ENV: 'dev', IVUENU_MAIL: 'file', IVUENU_MAIL_DIR: mailDir, IVUENU_PAYMENT_MOCK: 'true', WIPAY_ENABLED: 'false', IVUENU_TELEMETRY: 'off', APPYPAY_CHARGES_ENABLED: 'false', IVUENU_STT: 'echo' },
   });
   t.after(() => server.kill());
   const base = `http://127.0.0.1:${port}`;
   await waitFor(`${base}/health`);
 
   const secure = new SecureStore(path.join(tmpDir(), 'secure.bin'), null, { requireEncryption: false });
-  const api = new ApiClient({ getBase: () => base, secure, deviceName: 'Ivuenu desktop (test)' });
+  const api = new ApiClient({ getBase: () => base, secure, deviceName: 'Ivueno desktop (test)' });
   const licence = new LicenceManager({ secure, api });
 
   await t.test('register signs in and returns the profile', async () => {
@@ -111,7 +111,7 @@ test('desktop client against the real backend', { skip: haveBackend ? false : 'b
 
   await t.test('devices lists this one, profile edits and password change work', async () => {
     const devices = await api.devices();
-    assert.ok(devices.some((d) => d.device === 'Ivuenu desktop (test)'));
+    assert.ok(devices.some((d) => d.device === 'Ivueno desktop (test)'));
     assert.equal((await api.patchMe({ name: 'Ana S.' })).name, 'Ana S.');
     await api.changePassword('uma-palavra-passe-longa', 'outra-palavra-passe-longa');
     await api.logout();
@@ -140,7 +140,7 @@ test('desktop client against the real backend', { skip: haveBackend ? false : 'b
     const computer = async () => {
       const { store, repo } = newRepo();
       const sec = new SecureStore(path.join(tmpDir(), 'secure.bin'), null, { requireEncryption: false });
-      const client = new ApiClient({ getBase: () => base, secure: sec, deviceName: 'Ivuenu desktop (sync test)' });
+      const client = new ApiClient({ getBase: () => base, secure: sec, deviceName: 'Ivueno desktop (sync test)' });
       await client.login({ email: 'ana@exemplo.ao', password: 'senha-recuperada-123' });
       return { store, repo, sec, client, sync: new SyncManager({ repo, store, api: client, secure: sec }) };
     };
@@ -175,15 +175,16 @@ test('desktop client against the real backend', { skip: haveBackend ? false : 'b
   });
 
   await t.test('cloud transcription: audio goes up, a line comes back, minutes are counted, nothing else is kept', async () => {
-    assert.equal((await api.cloudTranscribe(Buffer.from('abc'), 'audio/webm', 3)).segments.length >= 0, true);          // the Free plan has an allowance too
+    assert.equal((await api.cloudTranscribe(require('../src/main/wav').pcm16ToWav(Buffer.alloc(3 * 32000)), 'audio/wav', 3)).segments.length >= 0, true);
     await api.request('POST', '/v1/dev/set-plan', { body: { plan: 'pro_cloud' } });
     const engine = new CloudEngine({ api, getSettings: () => ({ language: 'pt' }), fallback: new DemoEngine({ stepMs: 10 }), retryMs: [1] });
     const lines = []; const problems = [];
     engine.start({ id: 'mtg_cloud' }, { partial() {}, final: (l) => lines.push(l), problem: (p) => problems.push(p) }, () => 60_000);
-    await engine.feed({ source: 'mic', mime: 'audio/webm', seconds: 12, data: new Uint8Array(2000).buffer });
+    const recording = require('../src/main/wav').pcm16ToWav(Buffer.alloc(12 * 32000));
+    await engine.feed({ source: 'mic', mime: 'audio/wav', seconds: 12, data: recording });
     assert.equal(problems.length, 0);
     assert.equal(lines.length, 1);
-    assert.match(lines[0].text, /Linha de teste \(2000 bytes/);
+    assert.match(lines[0].text, /Linha de teste \(384044 bytes/);
     assert.equal(lines[0].speakerKey, 'spk_me');
     assert.equal(lines[0].startMs, 48_000);
     const usage = await api.cloudUsage();

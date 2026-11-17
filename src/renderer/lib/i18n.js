@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
 import { useApp } from './app-context.js';
 import { EN_BY_PT } from './i18n-en.js';
+import french from '../../shared/french.json' with { type: 'json' };
 
-// Interface language. Portuguese (Angola) is the default and the source of truth: a missing English text falls back to
-// Portuguese, never to a key. Screens are being moved over one by one; those not listed here are still Portuguese only.
+// Portuguese is the source of truth. Complete English and French catalogues are bundled locally.
 
-export const LANGUAGES = [{ id: 'pt', label: 'Português' }, { id: 'en', label: 'English' }];
+export const LANGUAGES = [{ id: 'pt', label: 'Português' }, { id: 'en', label: 'English' }, { id: 'fr', label: 'Français' }];
 
 const pt = {
   'lang.label': 'Idioma',
@@ -15,17 +15,17 @@ const pt = {
   'steps.mic': 'Microfone', 'steps.signin': 'Entrar', 'steps.ready': 'Pronto',
 
   'welcome.title': 'Um caderno que ouve.',
-  'welcome.body': 'A Ivuenu grava a reunião no teu computador, sem nenhum bot na chamada, e junta o que foi dito às notas que escreves. As reuniões ficam guardadas contigo.',
+  'welcome.body': 'A Ivueno grava a reunião no teu computador, sem nenhum bot na chamada, e junta o que foi dito às notas que escreves. As reuniões ficam guardadas contigo.',
   'welcome.p1': 'Funciona com Zoom, Meet, Teams, WhatsApp ou uma conversa na mesma sala.',
   'welcome.p2': 'O vermelho só aparece quando está a gravar.',
   'welcome.p3': 'As tuas notas vêm primeiro; o texto escrito pela IA vem depois, sempre identificado.',
   'welcome.start': 'Vamos começar',
 
   'check.title': 'Verificar o computador',
-  'check.body': 'A Ivuenu transcreve aqui, sem enviar o áudio. Vemos se este computador aguenta e dizemos o que esperar.',
+  'check.body': 'A Ivueno transcreve aqui, sem enviar o áudio. Vemos se este computador aguenta e dizemos o que esperar.',
   'check.checking': 'A verificar…', 'check.giveMic': 'Dar acesso', 'check.micOk': 'Tudo certo.',
 
-  'data.title': 'Como a Ivuenu trata os teus dados',
+  'data.title': 'Como a Ivueno trata os teus dados',
   'data.local': 'As reuniões ficam no teu computador', 'data.localHint': 'Transcrições, notas e tarefas são guardadas aqui. Podes guardar uma cópia encriptada na tua conta, se quiseres.',
   'data.cloud': 'A transcrição e a IA correm na nuvem', 'data.cloudHint': 'O áudio é enviado para ser transcrito e apagado logo a seguir. O texto é enviado para escrever notas, resumos e emails. Nada fica guardado no servidor.',
   'data.later': 'Sem bot na chamada: só a tua gravação. Avisa sempre os participantes.',
@@ -68,17 +68,17 @@ const en = {
   'steps.mic': 'Microphone', 'steps.signin': 'Sign in', 'steps.ready': 'Ready',
 
   'welcome.title': 'A notebook that listens.',
-  'welcome.body': 'Ivuenu records the meeting on your own computer, with no bot in the call, and adds what was said to the notes you write. Your meetings are stored with you.',
+  'welcome.body': 'Ivueno records the meeting on your own computer, with no bot in the call, and adds what was said to the notes you write. Your meetings are stored with you.',
   'welcome.p1': 'Works with Zoom, Meet, Teams, WhatsApp or a conversation in the same room.',
   'welcome.p2': 'Red only appears while it is recording.',
   'welcome.p3': 'Your notes come first; text written by the AI comes after, always labelled.',
   'welcome.start': "Let's start",
 
   'check.title': 'Check this computer',
-  'check.body': 'Ivuenu transcribes here, without sending the audio anywhere. We check whether this computer can cope and tell you what to expect.',
+  'check.body': 'Ivueno transcribes here, without sending the audio anywhere. We check whether this computer can cope and tell you what to expect.',
   'check.checking': 'Checking…', 'check.giveMic': 'Allow access', 'check.micOk': 'All good.',
 
-  'data.title': 'How Ivuenu treats your data',
+  'data.title': 'How Ivueno treats your data',
   'data.local': 'Your meetings stay on your computer', 'data.localHint': 'Transcripts, notes and tasks are stored here. You can keep an encrypted copy in your account if you want.',
   'data.cloud': 'Transcription and AI run in the cloud', 'data.cloudHint': 'The audio is sent to be transcribed and deleted right after. The text is sent to write notes, summaries and emails. Nothing is kept on the server.',
   'data.later': 'No bot in the call: only your own recording. Always tell the participants.',
@@ -113,11 +113,11 @@ const en = {
   'set.rec': 'Recipes', 'set.sync': 'Sync', 'set.priv': 'Privacy', 'set.org': 'Organisation', 'set.plano': 'Plan and usage', 'set.appLang': 'App language', 'set.theme': 'Theme',
 };
 
-const DICT = { pt, en };
+const DICT = { pt, en, fr: french.keys };
 
 export function translate(lang, key, vars) {
   // keyed texts first (nav.home), then Portuguese-as-key texts written straight in the screens, then Portuguese itself
-  let text = (DICT[lang] && DICT[lang][key]) || (lang === 'en' && EN_BY_PT[key]) || pt[key] || key;
+  let text = (DICT[lang] && DICT[lang][key]) || (lang === 'en' && EN_BY_PT[key]) || (lang === 'fr' && french.ui[key]) || pt[key] || key;
   if (vars) for (const [k, v] of Object.entries(vars)) text = text.replaceAll(`{${k}}`, v);
   return text;
 }

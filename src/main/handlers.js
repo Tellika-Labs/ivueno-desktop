@@ -1,5 +1,8 @@
 const calendar = require('./calendar');
+const calendarOauth = require('./calendar-oauth');
 const exporter = require('./export');
+const { meetingLanguage } = require('./languages');
+const { checkoutUrl } = require('./payment-pages');
 
 const BUILTIN_RECIPES = [
   { id: 'suggest-reply', name: 'Sugere o que dizer', view: 'live', builtin: true },
@@ -46,6 +49,21 @@ function createHandlers(ctx) {
   const nameOfMeeting = (m) => (key) => repo.speakerName(m, key);
   const lic = () => licence.status();
   const isPaid = () => lic().plan !== 'free';
+  const settingsView = () => {
+    const settings = repo.settings();
+    return api.signedIn() ? settings : { ...settings, recentSearches: [], glossary: '' };
+  };
+
+  async function activateUser(user) {
+    try {
+      if (services.bindAccount) services.bindAccount(user.id);
+      secure.set('user', user);
+    } catch (error) {
+      await api.logout();
+      secure.set('user', null);
+      throw error;
+    }
+  }
 
   /** What goes into an exported file (export.js): the person's choices, with safe defaults. */
   function exportOptions(m, { includeTranscript = false, include, brand = false } = {}) {
@@ -83,7 +101,7 @@ function createHandlers(ctx) {
   function gate() {
     const l = lic();
     if (l.state === 'none') throw fail('licence_missing', 'Entra na tua conta para começares a gravar.');
-    if (!l.canRecord) throw fail('licence_expired', 'Liga-te à internet para continuar a usar a Ivuenu.');
+    if (!l.canRecord) throw fail('licence_expired', 'Liga-te à internet para continuar a usar a Ivueno.');
     const limit = l.meetingsPerMonth;
     if (limit != null && usedThisMonth() >= limit) {
       throw fail('limit_reached', `Usaste ${limit} de ${limit} reuniões este mês.`, { limit });
@@ -109,15 +127,34 @@ function createHandlers(ctx) {
       version: ctx.version || '0.0.0', platform: process.platform,
       engine: { id: engine.id, label: engine.label, realTranscription: engine.realTranscription, needsAudio: !!engine.needsAudio, audioFormat: engine.audioFormat || 'webm' },
     }),
-    'settings:get': async () => repo.settings(),
+    'settings:get': async () => settingsView(),
     'settings:patch': async (patch) => {
+      const defaults = require('./store').DEFAULT_SETTINGS;
+      if (patch && (typeof patch !== 'object' || Array.isArray(patch))) throw fail('invalid', 'Definições inválidas.');
+      for (const [name, value] of Object.entries(patch || {})) {
+        if (!Object.hasOwn(defaults, name) || typeof value !== typeof defaults[name] || (Array.isArray(defaults[name]) && !Array.isArray(value))) throw fail('invalid', 'Definição desconhecida ou inválida.');
+      }
+      if (patch && 'apiBase' in patch && !require('./origins').validApiBase(patch.apiBase)) throw fail('invalid', 'O servidor tem de usar HTTPS.');
+      if (patch && 'apiBase' in patch && api.signedIn() && patch.apiBase !== repo.settings().apiBase) throw fail('sign_out_required', 'Sai da conta antes de mudar o servidor.');
       const next = repo.patchSettings(patch || {});
       if ('theme' in (patch || {})) services.setTheme(next.theme);
       if ('island' in (patch || {})) services.setIsland(next.island);
       if (['dictation', 'hotkeyDictation', 'hotkeyIsland'].some((k) => k in (patch || {}))) services.applyHotkeys();
-      return next;
+      if ('appLanguage' in (patch || {})) services.refreshLanguage?.();
+      return settingsView();
     },
     'hotkeys:status': async () => services.hotkeyStatus(),
+    // Invite friends: the person's code and progress, a check for a code typed at sign-up (public: there is no account yet), and adding one later.
+    'referral:me': async () => api.referralMe(),
+    'referral:check': async ({ code } = {}) => api.referralCheck(String(code || '')),
+    'referral:apply': async ({ code } = {}) => api.referralApply(String(code || '')),
+    // Updates (updater.js): the page shows a banner when one is ready; installing closes the app, so never in the middle of a recording.
+    'update:status': async () => (ctx.updater ? ctx.updater.status() : { enabled: false, phase: 'idle', version: null, percent: 0, error: '' }),
+    'update:check': async () => (ctx.updater ? ctx.updater.check() : { phase: 'idle' }),
+    'update:install': async () => {
+      if (session.phase === 'recording' || session.phase === 'paused') throw fail('recording', 'Pára a gravação antes de atualizar.');
+      return { started: !!(ctx.updater && ctx.updater.install()) };
+    },
     'dictation:state': async () => ctx.dictation.snapshot(),
     'dictation:toggle': async () => ctx.dictation.toggle(),
     'dictation:audio': async (chunk) => { ctx.dictation.receiveAudio(chunk); return { ok: true }; },
@@ -134,7 +171,7 @@ function createHandlers(ctx) {
       const gpu = await services.gpuInfo();
       const free = await services.freeDiskBytes();
       const gb = (b) => Math.round(b / 1e9);
-      return [
+      const checks = [
         gpu.hasDiscreteGpu
           ? { id: 'gpu', state: 'ok', badge: 'OK',
             title: en ? 'Graphics card found' : 'Placa gráfica encontrada',
@@ -151,6 +188,16 @@ function createHandlers(ctx) {
         { id: 'mic', state: 'todo', badge: '', title: en ? 'Microphone access' : 'Acesso ao microfone',
           text: en ? 'Windows will ask for permission.' : 'O Windows vai pedir autorização.' },
       ];
+      if (arg?.lang === 'fr') {
+        const gpuCheck = checks[0];
+        gpuCheck.badge = gpu.hasDiscreteGpu ? 'OK' : 'Compatible';
+        gpuCheck.title = gpu.hasDiscreteGpu ? 'Carte graphique détectée' : 'Aucune carte graphique détectée';
+        gpuCheck.text = 'La transcription s’exécute dans le cloud. Une carte graphique dédiée n’est pas nécessaire.';
+        checks[1] = { ...checks[1], badge: free > 5e9 ? 'OK' : 'Attention', title: free > 5e9 ? 'Espace disque' : 'Espace disque insuffisant',
+          text: free > 5e9 ? `${gb(free)} Go libres. Prévoyez environ 50 Mo par heure de réunion.` : `${gb(free)} Go libres. Libérez de l’espace avant une longue réunion.` };
+        checks[2] = { ...checks[2], title: 'Accès au microphone', text: 'Windows vous demandera l’autorisation.' };
+      }
+      return checks;
     },
     'model:status': async () => engine.modelStatus(),
     // the voice model (40 MB, only needed to tell the voices of an imported recording apart): the person agrees to the download in the screen, which then sends consent: 'confirmed'
@@ -168,13 +215,24 @@ function createHandlers(ctx) {
     }),
     'auth:login': async ({ email, password }) => {
       const user = await api.login({ email, password });
-      secure.set('user', user);
+      await activateUser(user);
       await licence.refresh({ repin: true }).catch((e) => { if (e.code !== 'offline') throw e; });
       return { user, licence: lic() };
     },
-    'auth:register': async ({ email, password, name }) => {
-      const user = await api.register({ email, password, name });
-      secure.set('user', user);
+    'auth:register': async ({ email, password, name, referralCode }) => {
+      const user = await api.register({ email, password, name, referralCode });
+      await activateUser(user);
+      await licence.refresh({ repin: true }).catch((e) => { if (e.code !== 'offline') throw e; });
+      return { user, licence: lic() };
+    },
+    // Continue with Google: the browser does the signing in on this computer, the Ivueno server checks the proof it gets back.
+    'auth:providers': async () => ({ google: calendarOauth.available().includes('google') }),
+    'auth:google': async () => {
+      if (!calendarOauth.available().includes('google')) throw fail('invalid', 'O início de sessão com Google ainda não está configurado.');
+      const { idToken, calendar: link } = await calendarOauth.signIn({ openExternal: (u) => services.openExternal(u) });
+      const user = await api.googleLogin(idToken);
+      await activateUser(user);
+      if (link) { secure.set('calendarAuth', link); secure.set('calendarUrl', null); }        // same approval connects the calendar
       await licence.refresh({ repin: true }).catch((e) => { if (e.code !== 'offline') throw e; });
       return { user, licence: lic() };
     },
@@ -184,6 +242,7 @@ function createHandlers(ctx) {
     'auth:refreshUser': async () => { const user = await api.me(); secure.set('user', user); return user; },
     'auth:logout': async () => {
       if (session.phase === 'recording' || session.phase === 'paused') throw fail('recording', 'Pára a gravação antes de sair da conta.');
+      try { if (sync && sync.disable) await sync.disable(); } catch { /* the key is forgotten below anyway when the tokens go */ }
       await api.logout(); licence.clear(); secure.set('user', null);
       return { signedIn: false };
     },
@@ -218,7 +277,7 @@ function createHandlers(ctx) {
       if (r.status !== 'done') return { status: 'pending' };
       secure.set('tokens', r.tokens);
       const user = await api.me();
-      secure.set('user', user);
+      await activateUser(user);
       await licence.refresh({ repin: true }).catch((e) => { if (e.code !== 'offline') throw e; });
       return { status: 'done', user, licence: lic() };
     },
@@ -234,7 +293,7 @@ function createHandlers(ctx) {
     'org:auditExport': async ({ orgId, format }) => {
       const f = format === 'json' ? 'json' : 'csv';
       const { data } = await api.request('GET', `/v1/orgs/${encodeURIComponent(orgId)}/audit/export`, { query: { format: f }, binary: true });
-      return services.saveFile(`ivuenu-auditoria.${f}`, data, [{ name: f.toUpperCase(), extensions: [f] }]);
+      return services.saveFile(`ivueno-auditoria.${f}`, data, [{ name: f.toUpperCase(), extensions: [f] }]);
     },
     // audio for engines that need it (the cloud engine), and the cloud minutes
     'audio:chunk': async (chunk) => { session.feedAudio(chunk); return { ok: true }; },
@@ -247,12 +306,12 @@ function createHandlers(ctx) {
       return { ok: true };
     },
     // Improve a meeting's transcript from its kept audio. Returns at once; progress comes as 'refine:progress' and the result is on the meeting (meeting.refine).
-    'refine:start': async ({ id }) => {
+    'refine:start': async ({ id, mode }) => {
       if (!refiner || !archive) throw fail('unavailable', 'Isto não está disponível.');
       if (!repo.getMeeting(id)) throw fail('not_found', 'Reunião não encontrada.');
       if (!archive.has(id)) throw fail('no_audio', 'O áudio desta reunião já não está guardado.');
       if (refiner.state().running) throw fail('refine_busy', 'Já há uma transcrição a ser melhorada.');
-      refiner.run(id).catch(() => {});
+      refiner.run(id, { mode: mode === 'text' ? 'text' : 'voices' }).catch(() => {});
       return { started: true };
     },
     'refine:status': async () => (refiner ? refiner.state() : { running: false }),
@@ -293,11 +352,12 @@ function createHandlers(ctx) {
     'billing:intent': async ({ intentId }) => api.billingIntent(intentId),
     'billing:pay': async ({ intentId, method, phone, scenario }) => api.createAttempt(intentId, method, phone, scenario),
     'billing:cancel': async ({ intentId, attemptId }) => api.cancelAttempt(intentId, attemptId),
-    // A hosted checkout opens in the person's own browser, and only if it is a page on WiPay's own host (the server checked it too).
+    'billing:reportPaid': async ({ intentId, attemptId }) => api.reportPaymentPaid(intentId, attemptId),
+    // The renderer embeds only a checkout validated by the main process.
+    'billing:checkoutPage': async ({ url }) => ({ url: checkoutUrl(url) }),
+    // Explicit browser fallback, using the same validation as the embedded page.
     'billing:openCheckout': async ({ url }) => {
-      let u; try { u = new URL(String(url)); } catch { throw fail('blocked', 'Ligação inválida.'); }
-      if (u.protocol !== 'https:' || u.hostname !== 'hosted.wipay.ao') throw fail('blocked', 'Só abrimos a página de pagamento da WiPay.');
-      await services.openExternal(u.toString());
+      await services.openExternal(checkoutUrl(url));
       return { opened: true };
     },
     // The server decides whether it was paid. When it says so, fetch the new licence so the app unlocks at once.
@@ -320,7 +380,7 @@ function createHandlers(ctx) {
     'meetings:interrupted': async () => repo.interrupted(),
     'notes:setMine': async ({ id, text }) => ({ savedAt: repo.setMyNotes(id, text) }),
     'notes:generate': async (id) => { await session.generateNotes(id); return view(repo.getMeeting(id)); },
-    'recipes:list': async () => ({ builtin: BUILTIN_RECIPES, mine: repo.listRecipes(), paid: isPaid() }),
+    'recipes:list': async () => ({ builtin: isPaid() ? BUILTIN_RECIPES : BUILTIN_RECIPES.filter((r) => !r.paid), mine: isPaid() ? repo.listRecipes() : [], paid: isPaid() }),
     'recipes:save': async (input) => {
       if (!isPaid()) throw fail('plan_required', 'Receitas próprias estão incluídas no Pro.', { plan: 'pro' });
       return repo.saveRecipe(input);
@@ -332,8 +392,7 @@ function createHandlers(ctx) {
       if (recipe.paid && !isPaid()) throw fail('plan_required', `${recipe.name} está no Pro.`, { plan: 'pro' });
       const m = repo.getMeeting(id);
       if (!m) throw fail('not_found', 'Reunião não encontrada.');
-      if (!recipe.builtin) return { text: 'Receitas próprias precisam do motor de IA local, que ainda não está instalado.', unavailable: true };
-      return engine.runRecipe(m, recipeId, { live: !!live }, nameOfMeeting(m));
+      return engine.runRecipe(m, recipeId, { live: !!live, instructions: recipe.builtin ? undefined : recipe.prompt }, nameOfMeeting(m));
     },
     'chat:ask': async ({ id, question }) => {
       const m = repo.getMeeting(id);
@@ -351,7 +410,7 @@ function createHandlers(ctx) {
       const fromTranscript = (m.segments || []).length > 0;
       const text = fromTranscript ? transcriptText(m, nameOf) : notesText(m);
       if (!text.trim()) throw fail('nothing_to_summarize', 'Ainda não há nada para resumir nesta reunião.');
-      const lang = language || (repo.settings().appLanguage === 'en' ? 'en' : 'pt');
+      const lang = language || meetingLanguage(m, ['en', 'fr'].includes(repo.settings().appLanguage) ? repo.settings().appLanguage : 'pt');
       const out = await engine.summarize({ scope: 'meeting', title: m.title, text, style: STYLES.includes(style) ? style : 'normal', language: lang, meeting: m }, nameOf);
       if (save) repo.updateMeeting(id, { summary: out.text.slice(0, 2000) });
       return { ...out, basis: fromTranscript ? 'transcript' : 'notes', saved: !!save };
@@ -362,10 +421,12 @@ function createHandlers(ctx) {
       if (!m) throw fail('not_found', 'Reunião não encontrada.');
       const source = String(text === undefined ? m.myNotes : text).slice(0, 60000);
       if (source.trim().length < 20) throw fail('nothing_to_summarize', 'As tuas notas são curtas demais para resumir.');
-      const lang = language || (repo.settings().appLanguage === 'en' ? 'en' : 'pt');
+      const lang = language || meetingLanguage(m, ['en', 'fr'].includes(repo.settings().appLanguage) ? repo.settings().appLanguage : 'pt');
       return engine.summarize({ scope: 'notes', title: m.title, text: source, style: STYLES.includes(style) ? style : 'short', language: lang, meeting: m }, nameOfMeeting(m));
     },
     // Import an audio file (see importer.js): the window decodes it and sends it in pieces.
+    'import:decode': async ({ data }) => ctx.mediaDecoder.decode(data),
+    'import:decodeCancel': async () => { ctx.mediaDecoder.cancel(); return { ok: true }; },
     'import:begin': async (input) => ctx.importer.begin(input || {}),
     'import:piece': async ({ id, startMs, durationMs, mime, data }) => { await ctx.importer.piece(id, { startMs, durationMs, mime, data }); return { ok: true }; },
     'import:pcm': async ({ id, data }) => { ctx.importer.pcm(id, { data }); return { ok: true }; },
@@ -402,7 +463,7 @@ function createHandlers(ctx) {
       const nameOf = nameOfMeeting(m);
       const names = (m.attendees || []).map((a) => a.name || a.email).filter(Boolean);
       const out = await engine.draftEmail({
-        meeting: m, tone: TONES.includes(tone) ? tone : 'friendly', language: ['auto', 'pt', 'en'].includes(language) ? language : 'auto',
+        meeting: m, tone: TONES.includes(tone) ? tone : 'friendly', language: ['auto', 'pt', 'en', 'fr', 'es'].includes(language) ? language : 'auto',
         includeTasks: !!includeTasks, senderName: (secure.get('user') || {}).name || '', attendeeNames: names,
       }, nameOf);
       return { ...out, to: parseRecipients((m.attendees || []).map((a) => a.email).filter(Boolean)).valid };
@@ -467,7 +528,7 @@ function createHandlers(ctx) {
       const start = { ...(input || {}) };
       const s = repo.settings();
       // The audio is kept on this computer only when the person allows it and the meeting keeps its transcript ("Só notas" keeps nothing).
-      if (archive && s.audioKeep !== 'off' && (start.keepTranscript ?? s.keepTranscript)) start.audio = { keep: true, keepUntil: null, blocks: 0, bytes: 0 };
+      if (archive && s.audioKeep !== 'off' && (start.keepTranscript ?? s.keepTranscript)) start.audio = { keep: true, mode: s.refineMode === 'text' ? 'text' : s.refineMode === 'off' ? 'off' : 'voices', keepUntil: null, blocks: 0, bytes: 0 };
       const m = session.start(start, consent);
       usage.report(m).catch(() => {});                      // tell the server in the background; queued if offline
       return view(m);
@@ -485,10 +546,19 @@ function createHandlers(ctx) {
 
     // --- calendar ---------------------------------------------------------------------------
     'calendar:status': async () => {
+      const link = secure.get('calendarAuth');
+      if (link) return { connected: true, provider: link.provider, host: calendarOauth.PROVIDERS[link.provider].name, available: calendarOauth.available() };
       const url = secure.get('calendarUrl');
       let host = '';
       try { host = new URL(url.replace(/^webcal:/i, 'https:')).hostname; } catch { /* not connected */ }
-      return { connected: !!url, host };
+      return { connected: !!url, provider: url ? 'ics' : null, host, available: calendarOauth.available() };
+    },
+    'calendar:connect': async (provider) => {
+      if (!calendarOauth.available().includes(provider)) throw fail('invalid', 'Esta ligação ainda não está configurada.');
+      const { refreshToken } = await calendarOauth.connect(provider, { openExternal: (u) => services.openExternal(u) });
+      secure.set('calendarAuth', { provider, refreshToken });
+      secure.set('calendarUrl', null);
+      return { connected: true };
     },
     'calendar:set': async (url) => {
       const clean = String(url || '').trim();
@@ -496,10 +566,15 @@ function createHandlers(ctx) {
       const text = await services.fetchText(clean.replace(/^webcal:/i, 'https:'));
       if (!/BEGIN:VCALENDAR/.test(text)) throw fail('invalid', 'Este endereço não parece ser um calendário (.ics).');
       secure.set('calendarUrl', clean);
+      secure.set('calendarAuth', null);
       return { connected: true };
     },
-    'calendar:clear': async () => { secure.set('calendarUrl', null); return { connected: false }; },
+    'calendar:clear': async () => { secure.set('calendarUrl', null); secure.set('calendarAuth', null); return { connected: false }; },
     'calendar:upcoming': async () => {
+      const link = secure.get('calendarAuth');
+      if (link) {
+        try { return { connected: true, events: await calendarOauth.upcoming(link.provider, link.refreshToken, { hours: 48 }) }; } catch (e) { console.warn('[calendar]', link.provider, e.code || '', e.message); return { connected: true, error: true, events: [] }; }
+      }
       let text;
       try { text = await calendarText(); } catch { return { connected: true, error: true, events: [] }; }
       if (text === null) return { connected: false, events: [] };

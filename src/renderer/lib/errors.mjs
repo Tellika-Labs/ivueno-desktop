@@ -1,17 +1,24 @@
 // Turns an error from the main process or the backend into a sentence a person can act on (Portuguese, Angola).
 // The backend's own messages are English and for developers; we only show our own wording.
+import french from '../../shared/french.json' with { type: 'json' };
 
 const BY_CODE = {
-  offline: 'Sem ligação ao servidor da Ivuenu. Verifica a internet e tenta outra vez.',
+  invalid_audio: 'Não foi possível ler o áudio deste ficheiro. Escolhe uma gravação com som em MP3, WAV, M4A, MP4, OGG, FLAC ou WEBM.',
+  audio_too_long: 'A gravação é longa demais (máximo 4 horas).',
+  media_decoder_missing: 'O leitor de áudio está em falta. Reinstala a Ivueno e tenta outra vez.',
+  media_decode_busy: 'Já há um ficheiro de áudio a ser preparado. Espera e tenta outra vez.',
+  media_decode_timeout: 'A preparação do áudio demorou demais. Tenta um ficheiro mais pequeno.',
+  offline: 'Sem ligação ao servidor da Ivueno. Verifica a internet e tenta outra vez.',
   invalid_credentials: 'O email ou a palavra-passe não estão certos.',
   email_taken: 'Já existe uma conta com este email.',
   invalid_or_expired_code: 'O código não está certo ou já expirou. Pede um novo.',
   invalid_or_expired_token: 'Este link já foi usado ou expirou. Pede um novo.',
-  account_suspended: 'Esta conta está suspensa. Fala com o suporte da Ivuenu.',
+  account_suspended: 'Esta conta está suspensa. Fala com o suporte da Ivueno.',
   email_not_verified: 'Confirma primeiro o teu email.',
   wrong_password: 'A palavra-passe atual não está certa.',
   validation_error: 'Verifica os dados que escreveste.',
   rate_limited: 'Demasiadas tentativas. Espera um minuto e tenta outra vez.',
+  recipe_failed: 'Não foi possível escrever isto agora. Tenta outra vez daqui a pouco.',
   billing_not_configured: 'Os pagamentos chegam em breve.',
   nothing_to_summarize: 'Ainda não há texto suficiente para resumir.',
   engine_missing: 'A transcrição não está disponível agora.',
@@ -36,7 +43,7 @@ const BY_CODE = {
   weak_passphrase: 'Usa pelo menos 8 caracteres.',
   quota_exceeded: 'A cópia na nuvem está cheia.',
   item_too_large: 'Uma reunião é grande demais para sincronizar.',
-  not_sold_online: 'Este plano combina-se connosco. Fala com a equipa da Ivuenu.',
+  not_sold_online: 'Este plano combina-se connosco. Fala com a equipa da Ivueno.',
   organisation_required: 'Este plano é para organizações.',
   payment_in_progress: 'Já tens um pagamento a ser confirmado.',
   payment_attempt_conflict: 'Já existe um pagamento em curso para este pedido.',
@@ -45,7 +52,7 @@ const BY_CODE = {
   payment_method_disabled: 'Este método de pagamento não está disponível agora.',
   invalid_phone: 'O número de telemóvel não está certo. Usa 9 dígitos a começar por 9.',
   licence_missing: 'Entra na tua conta para começares a gravar.',
-  licence_expired: 'Liga-te à internet para continuar a usar a Ivuenu.',
+  licence_expired: 'Liga-te à internet para continuar a usar a Ivueno.',
   licence_invalid: 'Não foi possível confirmar a tua licença. Entra outra vez na tua conta.',
   limit_reached: 'Chegaste ao limite de reuniões deste mês.',
   plan_required: 'Esta função está incluída no Pro.',
@@ -53,19 +60,35 @@ const BY_CODE = {
   recording: 'Pára a gravação primeiro.',
   no_secure_storage: 'Este computador não tem armazenamento seguro disponível, por isso não guardamos a sessão.',
   calendar_unreachable: 'Não foi possível ler o calendário.',
+  google_token_invalid: 'O Google não confirmou a tua identidade. Tenta outra vez.',
+  google_email_not_verified: 'O Google ainda não confirmou este email.',
+  google_no_email: 'O Google não partilhou o teu email.',
+  google_account_suspended: 'Esta conta está suspensa. Fala com o suporte da Ivueno.',
+  google_two_factor_use_password: 'Esta conta tem verificação em dois passos. Entra com a palavra-passe e o código.',
+  google_identity_mismatch: 'Este email já está ligado a outra conta Google.',
+  google_not_configured: 'O início de sessão com Google ainda não está disponível.',
+  google_keys_unavailable: 'Não foi possível verificar o Google agora. Tenta daqui a pouco.',
+  calendar_revoked: 'O acesso ao calendário foi retirado. Liga-o outra vez.',
+  timeout: 'O início de sessão demorou demasiado. Tenta outra vez.',
 };
 
 const EN = {
-  offline: 'No connection to the Ivuenu server. Check your internet and try again.',
+  invalid_audio: 'The audio in this file could not be read. Choose a recording with sound in MP3, WAV, M4A, MP4, OGG, FLAC or WEBM.',
+  audio_too_long: 'The recording is too long (maximum 4 hours).',
+  media_decoder_missing: 'The audio reader is missing. Reinstall Ivueno and try again.',
+  media_decode_busy: 'An audio file is already being prepared. Wait and try again.',
+  media_decode_timeout: 'Preparing the audio took too long. Try a smaller file.',
+  offline: 'No connection to the Ivueno server. Check your internet and try again.',
   invalid_credentials: 'The email or password is not right.',
   email_taken: 'An account with this email already exists.',
   invalid_or_expired_code: 'The code is wrong or has expired. Ask for a new one.',
   invalid_or_expired_token: 'This link was already used or has expired. Ask for a new one.',
-  account_suspended: 'This account is suspended. Contact Ivuenu support.',
+  account_suspended: 'This account is suspended. Contact Ivueno support.',
   email_not_verified: 'Confirm your email first.',
   wrong_password: 'The current password is not right.',
   validation_error: 'Check the details you typed.',
   rate_limited: 'Too many attempts. Wait a minute and try again.',
+  recipe_failed: 'Could not write this right now. Try again in a moment.',
   billing_not_configured: 'Payments are coming soon.',
   nothing_to_summarize: 'There is not enough text to summarise yet.',
   engine_missing: 'Transcription is not available right now.',
@@ -90,7 +113,7 @@ const EN = {
   weak_passphrase: 'Use at least 8 characters.',
   quota_exceeded: 'The cloud copy is full.',
   item_too_large: 'A meeting is too large to sync.',
-  not_sold_online: 'This plan is arranged with us. Talk to the Ivuenu team.',
+  not_sold_online: 'This plan is arranged with us. Talk to the Ivueno team.',
   organisation_required: 'This plan is for organisations.',
   payment_in_progress: 'You already have a payment being confirmed.',
   payment_attempt_conflict: 'A payment is already in progress for this request.',
@@ -99,7 +122,7 @@ const EN = {
   payment_method_disabled: 'This payment method is not available right now.',
   invalid_phone: 'The phone number is not right. Use 9 digits starting with 9.',
   licence_missing: 'Sign in to start recording.',
-  licence_expired: 'Connect to the internet to keep using Ivuenu.',
+  licence_expired: 'Connect to the internet to keep using Ivueno.',
   licence_invalid: 'We could not confirm your licence. Sign in again.',
   limit_reached: "You reached this month's meeting limit.",
   plan_required: 'This feature is included in Pro.',
@@ -107,16 +130,31 @@ const EN = {
   recording: 'Stop the recording first.',
   no_secure_storage: 'This computer has no secure storage available, so the session is not saved.',
   calendar_unreachable: 'The calendar could not be read.',
+  google_token_invalid: 'Google could not confirm who you are. Try again.',
+  google_email_not_verified: 'Google has not confirmed this email yet.',
+  google_no_email: 'Google did not share your email.',
+  google_account_suspended: 'This account is suspended. Contact Ivueno support.',
+  google_two_factor_use_password: 'This account uses two-step verification. Sign in with your password and code.',
+  google_identity_mismatch: 'This email is already linked to another Google account.',
+  google_not_configured: 'Sign-in with Google is not available yet.',
+  google_keys_unavailable: 'Google could not be checked right now. Try again in a moment.',
+  calendar_revoked: 'Access to the calendar was withdrawn. Connect it again.',
+  timeout: 'Sign-in took too long. Try again.',
 };
 let LANG = 'pt';
-export const setErrorLang = (lang) => { LANG = lang === 'en' ? 'en' : 'pt'; };
+export const setErrorLang = (lang) => { LANG = ['en', 'fr'].includes(lang) ? lang : 'pt'; };
 
 export function friendly(err) {
+  if (LANG === 'fr') {
+    if (err && french.errors[err.code]) return french.errors[err.code];
+    if (err?.status >= 500) return 'Le serveur Ivueno a rencontré un problème. Réessayez dans quelques instants.';
+    return (err && french.ui[err.message]) || 'Une erreur est survenue. Réessayez.';
+  }
   const en = LANG === 'en';
   if (!err) return en ? 'Something went wrong. Try again.' : 'Algo correu mal. Tenta outra vez.';
   if (en && EN[err.code]) return EN[err.code];
   if (!en && BY_CODE[err.code]) return BY_CODE[err.code];
-  if (err.status >= 500) return en ? 'The Ivuenu server had a problem. Try again in a moment.' : 'O servidor da Ivuenu teve um problema. Tenta outra vez daqui a pouco.';
+  if (err.status >= 500) return en ? 'The Ivueno server had a problem. Try again in a moment.' : 'O servidor da Ivueno teve um problema. Tenta outra vez daqui a pouco.';
   // Messages written by the main process are already Portuguese for people.
   if (!en && err.message && /[ãõçáéíóúâêô]| a | de | o | não /i.test(err.message)) return err.message;
   return en ? 'Something went wrong. Try again.' : 'Algo correu mal. Tenta outra vez.';

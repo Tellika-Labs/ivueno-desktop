@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-<title id="title">Ivuenu app icon</title><desc id="desc">Ivuenu mark on a dark rounded app tile.</desc>
+<title id="title">Ivueno app icon</title><desc id="desc">Ivueno mark on a dark rounded app tile.</desc>
 <defs>
  <linearGradient id="gBack" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#11D3B2"/><stop offset="100%" stop-color="#078A7B"/></linearGradient>
  <linearGradient id="gFront" x1="15%" y1="0%" x2="85%" y2="100%"><stop offset="0%" stop-color="#B7F5D8"/><stop offset="55%" stop-color="#70E7BA"/><stop offset="100%" stop-color="#32CDA1"/></linearGradient>

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 LETTER = re.compile(r"[A-Za-zÀ-ÿ]")
-SKIP = {"ivuenu", "OK", "APAGAR", "Ivuenu", "ABCD-EFGH", "00:12:38", "Word (.docx)", "PDF", "Markdown (.md)", "English", "Português",
+SKIP = {"ivuenu", "OK", "APAGAR", "Ivueno", "ABCD-EFGH", "00:12:38", "Word (.docx)", "PDF", "Markdown (.md)", "English", "Português",
         "Ctrl", "Pro", "Pro + Nuvem", "SSO"}
 ATTR = re.compile(r'(\s)(placeholder|aria-label|title|label|hint|alt)="([^"{}]*[A-Za-zÀ-ÿ][^"{}]*)"')
 TEXT = re.compile(r"(?<![=\-])>([^<>{};]*[A-Za-zÀ-ÿ][^<>{};]*)<")      # not after an arrow (=>), and never across code (;)

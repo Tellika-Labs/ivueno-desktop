@@ -1,3 +1,4 @@
+import { useAutoTour } from '../components/Tour.jsx';
 import React, { useEffect, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { Banner, Button, Dialog, Field, Seg, Switch } from '../components/ui.jsx';
@@ -8,32 +9,38 @@ import { listMics } from '../lib/audio.js';
 import { friendly } from '../lib/errors.mjs';
 import { monthName, passwordStrength } from '../lib/format.mjs';
 import { LANGUAGES, useT } from '../lib/i18n.js';
+import spokenLanguages from '../../shared/spoken-languages.json';
+import LanguageDropdown from '../components/LanguageDropdown.jsx';
+import Dropdown from '../components/Dropdown.jsx';
 import VerifyEmail from './VerifyEmail.jsx';
 
 const TABS = [['perfil', 'Perfil'], ['disp', 'Dispositivos'], ['sync', 'Sincronização'], ['grav', 'Gravação'], ['dit', 'Ditado'], ['cal', 'Calendário'], ['rec', 'Receitas'], ['priv', 'Privacidade'], ['org', 'Organização'], ['plano', 'Plano e uso']];
 
+const PAID_TABS = ['sync', 'org'];      // not shown at all on the free plan
+
 /** Settings as tabs along the top: one section at a time, the sidebar of the app never changes. */
 export default function Settings() {
-  const { route } = useApp();
+  const { route, auth } = useApp();
   const t = useT();
-  const [tab, setTab] = useState(route.section && TABS.some(([id]) => id === route.section) ? route.section : 'perfil');
-  useEffect(() => { if (route.section && TABS.some(([id]) => id === route.section)) setTab(route.section); }, [route.section]);
+  const tabs = auth.licence.plan === 'free' ? TABS.filter(([id]) => !PAID_TABS.includes(id)) : TABS;
+  const [tab, setTab] = useState(route.section && tabs.some(([id]) => id === route.section) ? route.section : 'perfil');
+  useEffect(() => { if (route.section && tabs.some(([id]) => id === route.section)) setTab(route.section); }, [route.section]);   // eslint-disable-line react-hooks/exhaustive-deps
   const onKey = (e) => {
-    const i = TABS.findIndex(([id]) => id === tab);
-    if (e.key === 'ArrowRight') setTab(TABS[(i + 1) % TABS.length][0]);
-    if (e.key === 'ArrowLeft') setTab(TABS[(i - 1 + TABS.length) % TABS.length][0]);
+    const i = tabs.findIndex(([id]) => id === tab);
+    if (e.key === 'ArrowRight') setTab(tabs[(i + 1) % tabs.length][0]);
+    if (e.key === 'ArrowLeft') setTab(tabs[(i - 1 + tabs.length) % tabs.length][0]);
   };
   return (
-    <div className="page framed" style={{ '--max': '880px' }}>
+    <div className="page framed" style={{ '--max': 'clamp(880px, 68vw, 1240px)' }}>
       <div className="page-inner" style={{ gap: 20 }}>
         <h1 className="display">{t('set.title')}</h1>
         <div role="tablist" aria-label={t("Definições")} className="tabs" onKeyDown={onKey}>
-          {TABS.map(([id, label]) => (
+          {tabs.map(([id, label]) => (
             <button key={id} type="button" role="tab" id={`tab-${id}`} className="tab" aria-selected={tab === id} aria-controls={`panel-${id}`} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}>{t(`set.${id}`)}</button>
           ))}
         </div>
         <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="col page-scroll" style={{ gap: 24 }}>
-          {tab === 'perfil' && <Profile />}
+          {tab === 'perfil' && <><Profile /><PlanUsage /><ReferralCard /></>}
           {tab === 'disp' && <Devices />}
           {tab === 'grav' && <><Recording /><AudioKeepCard /></>}
           {tab === 'dit' && <DictationSection />}
@@ -42,7 +49,7 @@ export default function Settings() {
           {tab === 'sync' && <><SyncCard /><PhoneCard /></>}
           {tab === 'priv' && <Privacy />}
           {tab === 'org' && <OrgSection />}
-          {tab === 'plano' && <PlanUsage />}
+          {tab === 'plano' && <><PlanUsage /><ReferralCard /></>}
         </div>
       </div>
     </div>
@@ -106,7 +113,7 @@ function Profile() {
   const [verifying, setVerifying] = useState(false);
   async function saveName() {
     if (name.trim() === (auth.user.name || '')) return;
-    try { await call('auth:updateProfile', { name: name.trim() }); await refreshAuth(); toast('Nome guardado'); } catch (e) { toast(friendly(e)); }
+    try { await call('auth:updateProfile', { name: name.trim() }); await refreshAuth(); toast(t('Nome guardado')); } catch (e) { toast(friendly(e)); }
   }
   return (
     <section id="perfil" className="card" aria-labelledby="st-p">
@@ -121,14 +128,12 @@ function Profile() {
               <a href="#" style={{ fontWeight: 600 }} onClick={(e) => { e.preventDefault(); setVerifying(true); }}>{t('Introduzir código')}</a></span>)}
         </Field>
         <Field label={t('set.appLang')} htmlFor="st-lang">
-          <select id="st-lang" className="select" value={settings.appLanguage || 'pt'} onChange={(e) => patchSettings({ appLanguage: e.target.value })}>
-            {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-          </select>
+          <LanguageDropdown id="st-lang" label={t('set.appLang')} value={settings.appLanguage || 'pt'} options={LANGUAGES}
+            onChange={appLanguage => patchSettings({ appLanguage })} />
         </Field>
         <Field label={t('set.theme')} htmlFor="st-theme">
-          <select id="st-theme" className="select" value={settings.theme} onChange={(e) => patchSettings({ theme: e.target.value })}>
-            <option value="system">{t("Como o Windows")}</option><option value="light">{t("Claro")}</option><option value="dark">{t("Escuro")}</option>
-          </select>
+          <Dropdown id="st-theme" label={t('set.theme')} icon="sliders" value={settings.theme} onChange={theme => patchSettings({ theme })}
+            options={[{ id: 'system', label: t('Como o Windows') }, { id: 'light', label: t('Claro') }, { id: 'dark', label: t('Escuro') }]} />
         </Field>
       </div>
       <div className="row wrap" style={{ justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--border)' }}>
@@ -148,7 +153,7 @@ function PasswordDialog({ onClose }) {
   const strength = passwordStrength(next);
   async function submit(e) {
     e.preventDefault(); setErr('');
-    try { await call('auth:changePassword', { current: cur, next }); toast('Palavra-passe mudada'); onClose(); } catch (x) { setErr(friendly(x)); }
+    try { await call('auth:changePassword', { current: cur, next }); toast(t('Palavra-passe mudada')); onClose(); } catch (x) { setErr(friendly(x)); }
   }
   return (
     <Dialog title={t("Mudar palavra-passe")} onClose={onClose}>
@@ -192,26 +197,23 @@ function Recording() {
       <h2 id="st-g">{t("Gravação · predefinições")}</h2>
       <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 16 }}>
         <Field label={t("Microfone")} htmlFor="st-mic">
-          <select id="st-mic" className="select" value={settings.micId} onChange={(e) => patchSettings({ micId: e.target.value })}>
-            <option value="">{t("Predefinido do Windows")}</option>
-            {mics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
+          <Dropdown id="st-mic" label={t('Microfone')} icon="mic" value={settings.micId} onChange={micId => patchSettings({ micId })}
+            options={[{ id: '', label: t('Predefinido do Windows') }, ...mics.map(m => ({ id: m.id, label: m.label }))]} />
         </Field>
         <Field label={t("Idioma falado")} htmlFor="st-sl">
-          <select id="st-sl" className="select" value={settings.language} onChange={(e) => patchSettings({ language: e.target.value })}>
-            <option value="auto">{t("Automático")}</option><option value="pt">Português</option><option value="en">English</option>
-          </select>
+          <LanguageDropdown id="st-sl" label={t('Idioma falado')} value={settings.language}
+            options={[{ id: 'auto', label: t('Automático') }, ...spokenLanguages]} onChange={language => patchSettings({ language })} />
         </Field>
         <Field label={t("Estilo das notas")} htmlFor="st-ns">
-          <select id="st-ns" className="select" value={settings.template} onChange={(e) => patchSettings({ template: e.target.value })}>
-            {Object.entries(TEMPLATE_NAMES).map(([k, v]) => <option key={k} value={k}>{t(v)}</option>)}
-          </select>
+          <Dropdown id="st-ns" label={t('Estilo das notas')} value={settings.template} onChange={template => patchSettings({ template })}
+            options={Object.entries(TEMPLATE_NAMES).map(([id, label]) => ({ id, label: t(label) }))} />
         </Field>
       </div>
+      <GlossaryField />
       <div className="col" style={{ gap: 4 }}>
         <span className="label">{t('Transcrição e IA')}</span>
         <span className="muted" style={{ fontSize: 13 }}>
-          {t('O áudio é enviado ao serviço de transcrição da Ivuenu e apagado logo a seguir; o texto é enviado para escrever as notas, os resumos e os emails. As reuniões ficam guardadas neste computador.')}
+          {t('O áudio é enviado ao serviço de transcrição da Ivueno e apagado logo a seguir; o texto é enviado para escrever as notas, os resumos e os emails. As reuniões ficam guardadas neste computador.')}
           {cloud.data ? ` ${t('{used} de {limit} minutos usados este mês.', { used: cloud.data.minutes_used, limit: cloud.data.minutes_limit })}` : ''}
         </span>
       </div>
@@ -220,24 +222,37 @@ function Recording() {
       <Switch checked={settings.redact} onChange={(v) => patchSettings({ redact: v })} label={t("Ocultar detalhes sensíveis")} hint={t("Cartões e palavras-passe ficam •••• na transcrição e nas notas")} />
       <Switch checked={settings.island} onChange={(v) => patchSettings({ island: v })} label={t("Mostrar a ilha de gravação")} hint={t("Uma pílula no topo do ecrã enquanto gravas. Atalho: Ctrl+Shift+I")} />
       <div className="row muted" style={{ fontSize: 13, gap: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-        <Icon name="info" size={16} stroke={1.8} />{info.engine.realTranscription ? t('Transcrição e IA: serviço da Ivuenu, na nuvem.') : t('Modo de desenvolvimento: a conversa é simulada.')}
+        <Icon name="info" size={16} stroke={1.8} />{info.engine.realTranscription ? t('Transcrição e IA: serviço da Ivueno, na nuvem.') : t('Modo de desenvolvimento: a conversa é simulada.')}
       </div>
     </section>
   );
 }
 
 function CalendarSection() {
+  useAutoTour('calendar');
   const t = useT();
   const { toast } = useApp();
   const status = useQuery('calendar:status', null, {});
   const [url, setUrl] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function connect(e) {
-    e.preventDefault(); setBusy(true);
-    try { await call('calendar:set', url); setUrl(''); status.reload(); toast(t('Calendário ligado')); } catch (x) { toast(friendly(x)); }
-    setBusy(false);
+  const [busy, setBusy] = useState('');                    // '' | 'google' | 'microsoft' | 'ics'
+  async function run(kind, fn, done) {
+    setBusy(kind);
+    try { await fn(); status.reload(); toast(done); } catch (x) { toast(friendly(x)); }
+    setBusy('');
   }
+  const connect = (e) => { e.preventDefault(); run('ics', async () => { await call('calendar:set', url); setUrl(''); }, t('Calendário ligado')); };
   const s = status.data;
+  const googleReady = !!(s && s.available && s.available.includes('google'));
+  const linkForm = (
+    <form className="col" style={{ gap: 10 }} onSubmit={connect}>
+      <p className="muted">{t("Cola o endereço secreto (.ics) do teu calendário Outlook ou Google. Fica guardado encriptado neste computador e nunca é mostrado.")}</p>
+      <div className="row wrap">
+        <label className="sr-only" htmlFor="st-ics">{t("Endereço do calendário")}</label>
+        <input id="st-ics" type="password" autoComplete="off" className="input grow" style={{ flex: '1 1 320px' }} placeholder={t("https://… ou webcal://…")} value={url} onChange={(e) => setUrl(e.target.value)} />
+        <Button type="submit" variant="primary" disabled={!url.trim() || !!busy}>{busy === 'ics' ? 'A verificar…' : 'Ligar'}</Button>
+      </div>
+    </form>
+  );
   return (
     <section id="cal" className="card" aria-labelledby="st-c">
       <h2 id="st-c">{t("Calendário")} <span className="tag" style={{ verticalAlign: 'middle', fontSize: 12, fontWeight: 600 }}>{t("no computador")}</span></h2>
@@ -246,15 +261,20 @@ function CalendarSection() {
           <span className="col"><strong>{t('Ligado a {host}', { host: s.host })}</strong><span className="muted" style={{ fontSize: 12 }}>{t("Lido neste computador. Só títulos, horas e participantes.")}</span></span>
           <Button size="sm" onClick={async () => { await call('calendar:clear'); status.reload(); }}>{t("Desligar")}</Button>
         </div>
-      ) : (
-        <form className="col" style={{ gap: 10 }} onSubmit={connect}>
-          <p className="muted">{t("Cola o endereço secreto (.ics) do teu calendário Outlook ou Google. Fica guardado encriptado neste computador e nunca é mostrado.")}</p>
+      ) : !googleReady ? linkForm : (
+        <div className="col" style={{ gap: 12 }}>
+          <p className="muted">{t("Entra com a tua conta e aprova o acesso só de leitura. Abre-se o navegador e voltas aqui.")}</p>
           <div className="row wrap">
-            <label className="sr-only" htmlFor="st-ics">{t("Endereço do calendário")}</label>
-            <input id="st-ics" type="password" autoComplete="off" className="input grow" style={{ flex: '1 1 320px' }} placeholder={t("https://… ou webcal://…")} value={url} onChange={(e) => setUrl(e.target.value)} />
-            <Button type="submit" variant="primary" disabled={!url.trim() || busy}>{busy ? 'A verificar…' : 'Ligar'}</Button>
+            <Button variant="primary" disabled={!!busy} onClick={() => run('google', () => call('calendar:connect', 'google'), t('Calendário ligado'))}>
+              {busy === 'google' ? t('À espera da aprovação…') : t('Ligar com {name}', { name: 'Google' })}
+            </Button>
+            <Button disabled title={t('Em breve')}>Microsoft · {t('Em breve')}</Button>
           </div>
-        </form>
+          <details>
+            <summary className="muted" style={{ cursor: 'pointer' }}>{t("Prefiro usar um endereço (.ics)")}</summary>
+            <div style={{ paddingTop: 10 }}>{linkForm}</div>
+          </details>
+        </div>
       )}
     </section>
   );
@@ -273,15 +293,15 @@ function RecipesSection() {
   return (
     <section id="rec" className="card" aria-labelledby="st-r">
       <div className="row" style={{ justifyContent: 'space-between' }}><h2 id="st-r">{t("Receitas")}</h2>
-        {paid ? <Button size="sm" variant="primary" onClick={() => setEdit({ name: '', prompt: '', view: 'done' })}>{t("Nova receita")}</Button> : <Button size="sm" icon="lock" onClick={() => nav('plans')}>{t("Receitas próprias: Pro")}</Button>}</div>
-      <p className="muted">{t("As ajudas de um clique. As da Ivuenu só se leem; as tuas podes editar.")}</p>
+        {paid && <Button size="sm" variant="primary" onClick={() => setEdit({ name: '', prompt: '', view: 'done' })}>{t("Nova receita")}</Button>}</div>
+      <p className="muted">{paid ? t("As ajudas de um clique. As da Ivueno só se leem; as tuas podes editar.") : t("As ajudas de um clique.")}</p>
       {(data ? data.mine : []).map((r) => (
         <div className="list-row" key={r.id}><span className="col"><strong>{r.name}</strong><span className="muted" style={{ fontSize: 12 }}>Tua · “{r.prompt}”</span></span>
           <span className="row"><Button size="sm" variant="ghost" onClick={() => setEdit(r)}>{t("Editar")}</Button>
             <Button size="sm" variant="ghost" aria-label={`Apagar receita ${r.name}`} onClick={async () => { await call('recipes:delete', r.id); reload(); }}><Icon name="trash" size={16} /></Button></span></div>
       ))}
       {(data ? data.builtin : []).map((r) => (
-        <div className="list-row" key={r.id}><span className="col"><strong>{t(r.name)}</strong><span className="muted" style={{ fontSize: 12 }}>Ivuenu · {r.view === 'live' ? t('ao vivo') : t('depois da reunião')}</span></span>
+        <div className="list-row" key={r.id}><span className="col"><strong>{t(r.name)}</strong><span className="muted" style={{ fontSize: 12 }}>Ivueno · {r.view === 'live' ? t('ao vivo') : t('depois da reunião')}</span></span>
           <span className="muted row" style={{ fontSize: 12, gap: 4 }}><Icon name="lock" size={14} stroke={1.8} />{t("Só leitura")}</span></div>
       ))}
       {edit && (
@@ -313,6 +333,21 @@ function Privacy() {
           <div key={title} className="col" style={{ padding: 14, borderRadius: 8, background: 'var(--bg)', gap: 4 }}><strong>{t(title)}</strong><span className="muted" style={{ fontSize: 13 }}>{t(d)}</span></div>
         ))}
       </div>
+      <div className="col" style={{ gap: 10, padding: 14, borderRadius: 8, background: 'var(--bg)' }}>
+        <strong>{t("Dados de utilização")}</strong>
+        <span className="muted" style={{ fontSize: 13 }}>{t("Para melhorarmos a Ivueno, a app envia dados de como é usada. Está sempre ativo.")}</span>
+        <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: 12 }}>
+          <div className="col" style={{ gap: 4 }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{t("O que enviamos")}</span>
+            <span className="muted" style={{ fontSize: 13 }}>{t("Os ecrãs que abres e quanto tempo ficas, as funcionalidades que usas e quanto demoram, códigos de erro, a versão da app, o sistema e o idioma. Enquanto tens sessão iniciada, ficam ligados à tua conta.")}</span>
+          </div>
+          <div className="col" style={{ gap: 4 }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{t("O que nunca enviamos")}</span>
+            <span className="muted" style={{ fontSize: 13 }}>{t("Títulos, notas, transcrições, áudio, nomes ou emails dos participantes, textos pesquisados, nomes de ficheiros, dados do calendário ou de pagamento.")}</span>
+          </div>
+        </div>
+        <span className="muted" style={{ fontSize: 12 }}>{t("Guardamos estes dados 180 dias. Se apagares a conta, deixam de estar ligados a ti. Se a tua empresa desligar a nuvem, a app não envia nada.")}</span>
+      </div>
       <div className="danger-zone">
         <strong style={{ color: 'var(--error)' }}>{t("Apagar a minha conta e dados")}</strong>
         <span>{t("Apaga a conta, todas as reuniões, notas e transcrições, neste computador e na conta. Não dá para desfazer.")}</span>
@@ -329,7 +364,8 @@ function Privacy() {
 import PayHistory from '../components/PayHistory.jsx';
 import SyncCard from '../components/SyncCard.jsx';
 import PhoneCard from '../components/PhoneCard.jsx';
-import AudioKeepCard from '../components/AudioKeepCard.jsx';
+import ReferralCard from '../components/ReferralCard.jsx';
+import AudioKeepCard, { GlossaryField } from '../components/AudioKeepCard.jsx';
 import OrgSection from '../components/OrgSection.jsx';
 
 function PlanUsage() {
@@ -349,10 +385,10 @@ function PlanUsage() {
       </div>
       {u && u.limit != null && <div className="progress" role="progressbar" aria-valuenow={u.used} aria-valuemin={0} aria-valuemax={u.limit} aria-label={t("Reuniões usadas este mês")}><div style={{ width: `${Math.min(100, (u.used / u.limit) * 100)}%` }} /></div>}
       {u && u.limit != null && <span className="muted" style={{ fontSize: 12 }}>{t('Volta a zero a 1 de {month}.', { month: next })}</span>}
-      <div className="row wrap" style={{ justifyContent: 'space-between', fontSize: 13, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+      {auth.licence.plan !== 'free' && <div className="row wrap" style={{ justifyContent: 'space-between', fontSize: 13, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
         <span><strong>{t('Sincronização')}</strong> · {sync && sync.eligible === false ? t('só nos planos pagos') : sync && sync.enabled ? t('Ligada') : t('Desligada')}{sync && sync.eligible !== false && !sync.enabled ? ` · ${t('as reuniões só existem neste computador')}` : ''}</span>
         <a href="#" style={{ fontWeight: 600 }} onClick={(e) => { e.preventDefault(); if (sync && sync.eligible === false) nav('plans'); else nav('settings', { section: 'sync' }); }}>{sync && sync.eligible === false ? t('Ver planos') : sync && sync.enabled ? t('Ver') : t('Ligar')}</a>
-      </div>
+      </div>}
     </section>
       <PayHistory />
     </>

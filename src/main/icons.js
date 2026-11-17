@@ -1,7 +1,7 @@
 const zlib = require('zlib');
 const { crc32 } = require('./zip');
 
-// The Ivuenu mark drawn in code (a rounded square with three note lines, the shortest at the bottom) so the app needs
+// The Ivueno mark drawn in code (a rounded square with three note lines, the shortest at the bottom) so the app needs
 // no image files. Coordinates are on the 28-unit grid used by the design. `recording` adds the red dot.
 
 const GREEN = [0x1e, 0x6a, 0x58];

@@ -20,9 +20,9 @@ const { vocabularyPrompt } = require('./engine/vocab');
  */
 class AudioImporter extends EventEmitter {
   /** engine: {canTranscribeFile(), transcribeAudio(req)}; notes(id) writes the notes; voices: {available(), modelPath(), identify(job, onProgress)} or null. */
-  constructor({ repo, engine, notes, voices = null, tmpDir = os.tmpdir(), now = () => Date.now() }) {
+  constructor({ repo, engine, notes, voices = null, glossary = () => '', tmpDir = os.tmpdir(), now = () => Date.now() }) {
     super();
-    this.repo = repo; this.engine = engine; this.notes = notes; this.voices = voices; this.tmpDir = tmpDir; this.now = now;
+    this.repo = repo; this.engine = engine; this.notes = notes; this.voices = voices; this.glossary = glossary; this.tmpDir = tmpDir; this.now = now;
     this.active = null;
   }
 
@@ -53,7 +53,7 @@ class AudioImporter extends EventEmitter {
   }
 
   /** Names and terms the speakers are likely to use, so the speech service spells them right. */
-  _prompt(id) { return vocabularyPrompt(this.repo.getMeeting(id)); }
+  _prompt(id) { return vocabularyPrompt(this.repo.getMeeting(id), this.glossary()) || undefined; }
 
   /** Transcribe one piece. Resolves when its lines are stored; rejects with the service's code (offline, plan_required, ...) so the caller can stop and cancel. */
   piece(id, { startMs = 0, durationMs = 0, mime = 'audio/wav', data }) {
@@ -62,11 +62,11 @@ class AudioImporter extends EventEmitter {
     const run = async () => {
       if (a.cancelled) return;
       const m = this.repo.getMeeting(id);
-      const res = await this.engine.transcribeAudio({ data, mime, seconds: Math.max(0.3, durationMs / 1000), language: m && m.language ? m.language : undefined, prompt: this._prompt(id) });
+      const res = await this.engine.transcribeAudio({ data, mime, seconds: Math.max(0.3, durationMs / 1000), language: m?.language || 'auto', prompt: this._prompt(id) });
       if (a.cancelled) return;
       (res.segments || []).forEach((line, i) => {
         const at = startMs + (line.start_ms || 0);
-        const { stored } = this.repo.addSegments(id, [{ clientId: `imp_${id}_${index}_${i}`, speakerKey: 'spk_1', source: 'system', text: line.text, startMs: at }]);
+        const { stored } = this.repo.addSegments(id, [{ clientId: `imp_${id}_${index}_${i}`, speakerKey: 'spk_1', source: 'system', text: line.text, language: res.language || m?.language || null, startMs: at }]);
         if (stored[0]) a.segs.push({ rowId: stored[0].id, startMs: at, endMs: startMs + Math.max(line.end_ms || 0, (line.start_ms || 0) + 500) });
       });
       a.lastEnd = Math.max(a.lastEnd, startMs + durationMs);

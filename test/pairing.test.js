@@ -59,7 +59,7 @@ test('the link carries what the phone needs, and the secret never goes to the se
   const { server, pairing } = setup();
   const r = await pairing.start();
   const u = new URL(r.link);
-  assert.equal(u.protocol, 'ivuenu:'); assert.equal(u.searchParams.get('v'), '1');
+  assert.equal(u.protocol, 'ivueno:'); assert.equal(u.searchParams.get('v'), '1');
   assert.equal(u.searchParams.get('s'), 'https://api.ivuenu.example'); assert.equal(u.searchParams.get('id'), server.row.id);
   assert.equal(u.searchParams.get('k'), server.row.desktop_pub);
   const secret = u.searchParams.get('x');

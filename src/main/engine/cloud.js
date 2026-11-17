@@ -1,11 +1,12 @@
 const { writeNotes: localNotes } = require('./notes');
 const { material, hasMaterial } = require('./email');
+const { meetingLanguage, languageCode } = require('../languages');
 const { pcm16ToWav } = require('../wav');
 const { vocabularyPrompt } = require('./vocab');
 const { effectiveTemplate, toServerKey, fromServerKey, sampleText } = require('./mtype');
 
 /**
- * THE CLOUD ENGINE (plan Pro + Cloud and company plans). It sends short pieces of audio to the Ivuenu server for transcription and
+ * THE CLOUD ENGINE (plan Pro + Cloud and company plans). It sends short pieces of audio to the Ivueno server for transcription and
  * asks the server's stronger model for notes. The server keeps nothing: audio and text are processed and forgotten. The meeting
  * itself still lives on this computer. If the network or the server fails, notes fall back to the local method, so a meeting is
  * never left without notes.
@@ -13,6 +14,7 @@ const { effectiveTemplate, toServerKey, fromServerKey, sampleText } = require('.
  * The window that owns the microphone cuts the sound into ~12 second pieces (renderer/lib/audio.js) and hands each piece to feed().
  */
 const BUILTIN_RECIPES = new Set(['suggest-reply', 'catch-up', 'explain', 'good-questions', 'tldr', 'decisions', 'unanswered', 'blind-spots', 'coach', 'shorter']);
+const LOCAL_RECIPES = new Set(['catch-up', 'tldr', 'decisions', 'unanswered', 'shorter']);      // the ones DemoEngine.runRecipe can really write
 const MAX_ATTEMPTS = 3;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -65,9 +67,10 @@ class CloudEngine {
 
   start(meeting, sink, elapsedMs) {
     this._sink = sink; this._clock = elapsedMs; this._paused = false; this._n = 0; this.lastError = null; this._meetingId = meeting.id;
-    this._prompt = vocabularyPrompt(meeting);                     // the people of the meeting and local terms, so the speech service spells them right
-    this._preview = !!(meeting.audio && meeting.audio.keep);      // the audio is kept: a more accurate pass follows, so these live pieces are only a preview
-    this._context = {};                                           // per source, the end of what was just heard: the next piece starts knowing it
+    this._prompt = vocabularyPrompt(meeting, this.getSettings().glossary) || undefined;     // the people of the meeting and the person's own terms: a short, optional hint
+    // Only when the transcript will be made again from the kept audio (mode 'text') are these live pieces a preview that does not count against the minutes.
+    this._preview = !!(meeting.audio && meeting.audio.keep && meeting.audio.mode === 'text');
+    this._language = meeting.language === null ? 'auto' : meeting.language || this.getSettings().language;
   }
 
   pause() { this._paused = true; }
@@ -91,12 +94,10 @@ class CloudEngine {
 
   async _send(chunk, startMs, index) {
     const sink = this._sink;
-    const language = this.getSettings().language;
+    const language = this._language;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        const prompt = [this._prompt, this._context[chunk.source]].filter(Boolean).join(' ').slice(0, 800);
-        const res = await this.api.cloudTranscribe(Buffer.from(chunk.data), chunk.mime, chunk.seconds, language === 'auto' ? undefined : language, prompt, { preview: this._preview });
-        this._context[chunk.source] = (res.segments || []).map((s) => s.text).join(' ').slice(-300) || this._context[chunk.source];
+        const res = await this.api.cloudTranscribe(Buffer.from(chunk.data), chunk.mime, chunk.seconds, language === 'auto' ? undefined : language, this._prompt, { preview: this._preview });
         res.segments.forEach((s, i) => {
           if (!sink) return;
           sink.final({
@@ -133,7 +134,7 @@ class CloudEngine {
     try {
       const out = await this.api.cloudNotes({
         title: meeting.title || '', my_notes: meeting.myNotes || '', attendees: (meeting.attendees || []).map((a) => a.name || a.email).filter(Boolean),
-        transcript: this._transcript(meeting, nameOf), template: toServerKey(effectiveTemplate(meeting)), redact: meeting.redact !== false,
+        transcript: this._transcript(meeting, nameOf), template: toServerKey(effectiveTemplate(meeting)), language: meetingLanguage(meeting), redact: meeting.redact !== false,
       });
       const lines = String(out.notes_markdown || '').split('\n').map((l) => l.replace(/^[\s#>*•-]+/, '').trim()).filter(Boolean).slice(0, 14);
       return {
@@ -146,19 +147,27 @@ class CloudEngine {
     }
   }
 
+  /**
+   * One-click recipes. The server writes them. Only the five the local engine can really write fall back to it; for the others a server
+   * failure is thrown with a code the screen can explain (offline, rate_limited, plan_required, recipe_failed) and `retryable`, never the
+   * local engine's "not available" text. The person's own recipe is sent as `opts.instructions`.
+   */
   async runRecipe(meeting, recipeId, opts = {}, nameOf) {
-    if (!BUILTIN_RECIPES.has(recipeId)) return this.fallback.runRecipe(meeting, recipeId, opts, nameOf);
+    const custom = !BUILTIN_RECIPES.has(recipeId);
+    if (custom && !opts.instructions) return this.fallback.runRecipe(meeting, recipeId, opts, nameOf);
     try {
-      const out = await this.api.cloudRecipe({ recipe_id: recipeId, live: !!opts.live, title: meeting.title || '', notes: meeting.summary || meeting.myNotes || '', transcript: this._transcript(meeting, nameOf), redact: meeting.redact !== false });
-      return { text: out.text };
+      const out = await this.api.cloudRecipe({ ...(custom ? { instructions: opts.instructions } : { recipe_id: recipeId }), live: !!opts.live, title: meeting.title || '', notes: meeting.summary || meeting.myNotes || '', transcript: this._transcript(meeting, nameOf), redact: meeting.redact !== false });
+      return { text: out.text, engine: 'cloud' };
     } catch (err) {
-      return this.fallback.runRecipe(meeting, recipeId, opts, nameOf);
+      if (!custom && LOCAL_RECIPES.has(recipeId)) return { ...(await this.fallback.runRecipe(meeting, recipeId, opts, nameOf)), engine: 'demo-fallback' };
+      const code = err.code === 'offline' || err.code === 'plan_required' || err.code === 'cloud_disabled_by_policy' ? err.code : err.status === 429 ? 'rate_limited' : 'recipe_failed';
+      throw Object.assign(new Error(`recipe failed: ${err.code || err.status || 'error'}`), { code, status: err.status, retryable: code !== 'plan_required' && code !== 'cloud_disabled_by_policy' });
     }
   }
 
   /** Summary by the server's model. Throws when it cannot (the router then summarises locally). */
   async summarize({ scope, title, text, style, language, meeting }) {
-    const out = await this.api.cloudSummarize({ scope, title: title || '', text, style, language: language === 'en' ? 'en' : 'pt', redact: meeting.redact !== false });
+    const out = await this.api.cloudSummarize({ scope, title: title || '', text, style, language: languageCode(language) || 'auto', redact: meeting.redact !== false });
     return { text: out.text, engine: 'cloud' };
   }
 

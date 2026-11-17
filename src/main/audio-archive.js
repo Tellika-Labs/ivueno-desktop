@@ -17,7 +17,22 @@ const SOURCES = new Set(['mic', 'system']);
 const fail = (code, message) => Object.assign(new Error(message), { code });
 
 class AudioArchive {
-  constructor({ dir, now = () => Date.now() }) { this.dir = dir; this.now = now; }
+  constructor({ dir, now = () => Date.now(), cipher = null }) { this.dir = dir; this.now = now; this.cipher = cipher; }
+
+  migrate() {
+    if (!this.cipher) return;
+    for (const id of this.ids()) {
+      for (const block of this.blocks(id)) {
+        const file = path.join(this._folder(id), path.basename(block.file));
+        const bytes = fs.readFileSync(file);
+        if (!this.cipher.encrypted(bytes)) {
+          const temporary = `${file}.encrypted`;
+          fs.writeFileSync(temporary, this.cipher.seal(bytes, `audio:${id}:${path.basename(block.file)}`), { mode: 0o600 });
+          fs.renameSync(temporary, file);
+        }
+      }
+    }
+  }
 
   _folder(id) {
     if (!ID.test(String(id))) throw fail('invalid', 'Reunião inválida.');
@@ -39,7 +54,7 @@ class AudioArchive {
     fs.mkdirSync(folder, { recursive: true });
     const n = manifest.blocks.filter((b) => b.source === source).length;
     const file = `${source}-${String(n).padStart(3, '0')}.webm`;
-    fs.writeFileSync(path.join(folder, file), buf);
+    fs.writeFileSync(path.join(folder, file), this.cipher ? this.cipher.seal(buf, `audio:${id}:${file}`) : buf, { mode: 0o600 });
     manifest.blocks.push({ file, source, startMs: Math.max(0, Math.round(startMs) || 0), seconds: Math.max(0.1, Number(seconds) || 0), bytes: buf.length });
     fs.writeFileSync(path.join(folder, 'manifest.json'), JSON.stringify(manifest));
     return { blocks: manifest.blocks.length, bytes: manifest.blocks.reduce((a, b) => a + b.bytes, 0) };
@@ -53,7 +68,8 @@ class AudioArchive {
   read(id, file) {
     const known = this._manifest(id).blocks.find((b) => b.file === file);
     if (!known) throw fail('not_found', 'Esse áudio já não existe.');
-    return fs.readFileSync(path.join(this._folder(id), path.basename(known.file)));
+    const bytes = fs.readFileSync(path.join(this._folder(id), path.basename(known.file)));
+    return this.cipher ? this.cipher.open(bytes, `audio:${id}:${path.basename(known.file)}`) : bytes;
   }
 
   bytes(id) { return this._manifest(id).blocks.reduce((a, b) => a + b.bytes, 0); }

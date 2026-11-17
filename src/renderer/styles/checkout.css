@@ -10,6 +10,8 @@
 .co-col { display: flex; flex-direction: column; gap: 14px; }
 .co-sep { padding-top: 16px; border-top: 1px solid var(--border); }
 .co-full { width: 100%; }
+.co-embedded { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.co-checkout-frame { display: block; width: 100%; height: 660px; max-height: 85vh; min-height: 480px; border: 1px solid var(--border); border-radius: var(--r-lg); background: #fff; }
 
 .co-methods { display: flex; flex-direction: column; gap: 10px; }
 .co-method { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; border-radius: var(--r-lg); cursor: pointer; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); text-align: left; font: inherit; }

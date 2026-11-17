@@ -1,6 +1,7 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿import { useAutoTour } from '../components/Tour.jsx';
+import React, { useEffect, useRef, useState } from 'react';
 import { useT } from '../lib/i18n.js';
-import Icon from '../components/Icon.jsx';
+import Icon, { Logo } from '../components/Icon.jsx';
 import { Avatar, Banner, Button, Chip, Dialog, IconButton } from '../components/ui.jsx';
 import { useApp, TEMPLATE_NAMES } from '../lib/app-context.js';
 import { useMeeting, useQuery, useDebounced, useDismiss } from '../lib/hooks.js';
@@ -11,6 +12,8 @@ import { friendly } from '../lib/errors.mjs';
 import SummarizeDialog from '../components/SummarizeDialog.jsx';
 import EmailDialog from '../components/EmailDialog.jsx';
 import ShareDialog from '../components/ShareDialog.jsx';
+import SpeakerName from '../components/SpeakerName.jsx';
+import Dropdown from '../components/Dropdown.jsx';
 
 const p2 = (n) => String(n).padStart(2, '0');
 const hms = (s) => (/^\d\d:\d\d:\d\d$/.test(s) ? s : '');
@@ -47,6 +50,7 @@ export default function Detail() {
 
   const [title, setTitle] = useState('');
   useEffect(() => { if (m) setTitle(m.title); }, [m && m.id]);// eslint-disable-line
+  useAutoTour('detail', !loading && !!m && m.status !== 'recording');
 
   if (loading) return <div className="detail"><div className="detail-inner"><div className="skel" style={{ height: 36, width: '50%' }} /></div></div>;
   if (error || !m) {
@@ -71,11 +75,11 @@ export default function Detail() {
     setExportOpen(false);
     try {
       const r = await call('export:run', { id, format, includeTranscript: includeTr });
-      if (format === 'copy') toast('Notas copiadas'); else if (r && r.saved) toast(`Guardado: ${r.name}`);
+      if (format === 'copy') toast(t('Notas copiadas')); else if (r && r.saved) toast(t('Guardado: {name}', { name: r.name }));
     } catch (e) { toast(friendly(e)); }
   }
   async function runRecipe(r) {
-    setRecipe({ name: r.name, text: 'A pensar…' });
+    setRecipe({ name: r.name, text: t('A pensar…') });
     try { const out = await call('recipes:run', { id, recipeId: r.id, live: false }); setRecipe({ name: r.name, text: out.text }); }
     catch (e) { setRecipe({ name: r.name, text: friendly(e) }); }
   }
@@ -92,14 +96,14 @@ export default function Detail() {
       <div className="detail-inner">
         <button type="button" className="back" onClick={() => nav('home')}><Icon name="back" size={16} stroke={2} />{t("Início")}</button>
 
-        <header className="page-head" style={{ alignItems: 'flex-start' }}>
+        <header className="page-head" data-tour="detail-head" style={{ alignItems: 'flex-start' }}>
           <div className="col grow" style={{ gap: 10, flex: '1 1 420px' }}>
             <label className="sr-only" htmlFor="dt-title">{t("Título")}</label>
             <input id="dt-title" className="title-input" style={{ flex: 'none', fontSize: 22, lineHeight: '30px', fontWeight: 600, height: 38, width: '100%' }} value={title} placeholder={t("Reunião sem título")}
               onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== m.title && call('meetings:patch', { id, patch: { title } })} />
             <div className="row wrap" style={{ gap: '8px 16px', fontSize: 13, color: 'var(--text-2)' }}>
               <span>{when}{m.durationSeconds != null ? ` · ${durationStr(m.durationSeconds)}` : ''}</span>
-              <span className="row" style={{ paddingLeft: 7 }} aria-label={`${m.speakers.length} participantes`}>{m.speakers.map((s) => <Avatar key={s.key} stack color={s.color} initials={s.initials} title={s.display} />)}</span>
+              <span className="row" style={{ paddingLeft: 7 }} aria-label={t('{n} participantes', { n: m.speakers.length })}>{m.speakers.map((s) => <Avatar key={s.key} stack color={s.color} initials={s.initials} title={s.display} />)}</span>
               {m.consent.status === 'confirmed'
                 ? <span className="tag ok"><Icon name="shieldCheck" size={14} stroke={1.8} />{t("Participantes avisados")}</span>
                 : <span className="tag"><Icon name="shield" size={14} stroke={1.8} />{t("Só notas pessoais")}</span>}
@@ -107,12 +111,10 @@ export default function Detail() {
               {kindKey && TEMPLATE_NAMES[kindKey] && <span className="tag" title={m.template === 'auto' ? t('Tipo de reunião detetado automaticamente') : t('Tipo de reunião escolhido por ti')}>{t(TEMPLATE_NAMES[kindKey])}{m.template === 'auto' ? ` · ${t('automático')}` : ''}</span>}
             </div>
           </div>
-          <div className="row wrap" style={{ position: 'relative' }}>
+          <div className="row wrap" data-tour="detail-actions" style={{ position: 'relative' }}>
             <label className="sr-only" htmlFor="dt-folder">{t("Pasta")}</label>
-            <select id="dt-folder" className="select" value={m.folderId || ''} onChange={(e) => call('meetings:patch', { id, patch: { folderId: e.target.value || null } })}>
-              <option value="">{t("Sem pasta")}</option>
-              {(folders.data || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+            <Dropdown id="dt-folder" label={t('Pasta')} icon="folder" value={m.folderId || ''} onChange={value => call('meetings:patch', { id, patch: { folderId: value || null } })}
+              options={[{ id: '', label: t('Sem pasta') }, ...(folders.data || []).map(f => ({ id: f.id, label: f.name }))]} />
             <Button icon="mail" onClick={() => setEmailing(true)}>{t("Escrever email")}</Button>
             <Button icon="share" onClick={() => setSharing(true)}>{t("Partilhar")}</Button>
             <div ref={exportRef} style={{ position: 'relative' }}>
@@ -142,25 +144,23 @@ export default function Detail() {
 
         <RefineBar m={m} />
 
-        <div role="tablist" aria-label={t("Secções da reunião")} className="tabs">
+        <div role="tablist" aria-label={t("Secções da reunião")} className="tabs" data-tour="detail-tabs">
           {[['notes', t('Notas')], ['transcript', t('Transcrição')], ['tasks', t('Tarefas'), openTasks.filter((x) => !x.done).length], ['chat', t('Conversa')]].map(([k, label, n]) => (
             <button key={k} type="button" role="tab" className="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}{n ? <span className="n">{n}</span> : null}</button>
           ))}
         </div>
 
         <div className="page-scroll">
-        <div className="row wrap" role="group" aria-label={t("Pedir à Ivuenu")}>
-          <span className="h-sub" style={{ marginRight: 4 }}>{t("Pedir à Ivuenu")}</span>
+        <div className="row wrap" data-tour="detail-ask" role="group" aria-label={t("Pedir à Ivueno")}>
+          <span className="h-sub" style={{ marginRight: 4 }}>{t("Pedir à Ivueno")}</span>
           <Chip onClick={() => setSumming('meeting')}>{t("Resumir")}</Chip>
-          {doneRecipes.map((r) => (r.paid && !paid
-            ? <Chip key={r.id} locked icon="lock" title={t("Incluído no Pro")} onClick={() => nav('plans')}>{t(r.name)}<span className="sr-only">, {t('Incluído no Pro')}</span></Chip>
-            : <Chip key={r.id} onClick={() => runRecipe(r)}>{t(r.name)}</Chip>))}
+          {doneRecipes.filter((r) => paid || !r.paid).map((r) => <Chip key={r.id} onClick={() => runRecipe(r)}>{t(r.name)}</Chip>)}
         </div>
         {recipe && (
           <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div className="row" style={{ justifyContent: 'space-between' }}><strong>{recipe.name}</strong><IconButton icon="close" size="sm" label={t("Fechar")} onClick={() => setRecipe(null)} /></div>
             <p style={{ whiteSpace: 'pre-line', fontSize: 15, lineHeight: '24px' }}>{recipe.text}</p>
-            <div><Button size="sm" icon="copy" onClick={() => navigator.clipboard.writeText(recipe.text).then(() => toast('Copiado'))}>{t("Copiar")}</Button></div>
+            <div><Button size="sm" icon="copy" onClick={() => navigator.clipboard.writeText(recipe.text).then(() => toast(t('Copiado')))}>{t("Copiar")}</Button></div>
           </div>
         )}
 
@@ -176,7 +176,7 @@ export default function Detail() {
                 </span>
               </div>
             )}
-            <div className="two-col">
+            <div className="two-col" data-tour="detail-notes">
               <section className="note-card" aria-labelledby="dt-mine">
                 <div className="row" style={{ justifyContent: 'space-between', padding: '16px 20px 8px' }}>
                   <h2 id="dt-mine" className="panel-title">{t("As tuas notas")}</h2>
@@ -191,13 +191,12 @@ export default function Detail() {
 
               <section className="note-card" aria-labelledby="dt-ai">
                 <div className="row wrap" style={{ justifyContent: 'space-between', padding: '16px 20px 8px' }}>
-                  <h2 id="dt-ai" className="panel-title row" style={{ gap: 8 }}>{t("Notas da Ivuenu")}
+                  <h2 id="dt-ai" className="panel-title row" style={{ gap: 8 }}>{t("Notas da Ivueno")}
                     <span className="tag info" style={{ height: 'auto', padding: '2px 8px' }}>{demoNotes ? t('extraído da conversa, sem IA · revê antes de enviar') : t('escrito pela IA · revê antes de enviar')}</span></h2>
                   <div className="row wrap">
                     <label className="sr-only" htmlFor="dt-style">{t("Estilo das notas")}</label>
-                    <select id="dt-style" className="select" style={{ height: 32, fontSize: 13, maxWidth: 'min(100%, 300px)' }} value={m.template} onChange={(e) => rewrite(e.target.value)}>
-                      {Object.entries(TEMPLATE_NAMES).map(([k, v]) => <option key={k} value={k}>{k === 'auto' && detected ? `${t(v)} · ${t('detetado')}: ${t(TEMPLATE_NAMES[detected.key])}` : t(v)}</option>)}
-                    </select>
+                    <Dropdown id="dt-style" label={t('Estilo das notas')} style={{ maxWidth: 'min(100%, 300px)' }} compact value={m.template} onChange={rewrite}
+                      options={Object.entries(TEMPLATE_NAMES).map(([id, label]) => ({ id, label: id === 'auto' && detected ? `${t(label)} · ${t('detetado')}: ${t(TEMPLATE_NAMES[detected.key])}` : t(label) }))} />
                     <Button size="sm" onClick={() => rewrite()} disabled={m.notesState === 'writing' || m.status === 'recording'}>{m.notesState === 'ready' ? t('Reescrever notas') : t('Escrever notas')}</Button>
                   </div>
                 </div>
@@ -234,14 +233,14 @@ export default function Detail() {
                 )}
                 {m.notesState === 'ready' && (
                   <div className="ai-body">
-                    <p className="muted" style={{ fontSize: 12, lineHeight: '16px', marginBottom: 6 }}>{t("Linhas tuas mantêm-se tal como as escreveste. O que a Ivuenu acrescentou está em cinzento, com a hora de onde veio.")}</p>
+                    <p className="muted" style={{ fontSize: 12, lineHeight: '16px', marginBottom: 6 }}>{t("Linhas tuas mantêm-se tal como as escreveste. O que a Ivueno acrescentou está em cinzento, com a hora de onde veio.")}</p>
                     {m.aiBlocks.map((b, i) => (
                       <div key={i} className="col" style={{ gap: 2, padding: '4px 0' }}>
                         <span>{b.mine}</span>
                         {b.add && <span className="ai-add">{b.add} {hms(b.t) && <a href="#" className="mono" onClick={(e) => { e.preventDefault(); setGoto(parseClock(b.t)); setTab('transcript'); }}>{b.t}</a>}</span>}
                       </div>
                     ))}
-                    {m.aiBlocks.length === 0 && <p className="muted">{t("Escreve notas durante a reunião e a Ivuenu junta o que foi dito.")}</p>}
+                    {m.aiBlocks.length === 0 && <p className="muted">{t("Escreve notas durante a reunião e a Ivueno junta o que foi dito.")}</p>}
                     {m.aiExtra.length > 0 && <h3 style={{ margin: '12px 0 2px', fontSize: 16, fontWeight: 700, color: 'var(--text-2)' }}>{t("Também foi dito")}</h3>}
                     {m.aiExtra.map((x, i) => <span key={i} className="muted" style={{ fontSize: 15, lineHeight: '24px' }}>• {x.text} {hms(x.t) && <a href="#" className="mono" style={{ fontSize: 12, color: 'var(--text-2)' }} onClick={(e) => { e.preventDefault(); setGoto(parseClock(x.t)); setTab('transcript'); }}>{x.t}</a>}</span>)}
                   </div>
@@ -287,7 +286,6 @@ function TranscriptTab({ m, goto, clearGoto }) {
   const [hit, setHit] = useState(0);
   const [limit, setLimit] = useState(300);
   const [time, setTime] = useState('');
-  const [renaming, setRenaming] = useState(null);
   const refs = useRef({});
 
   const needle = fold(q).trim();
@@ -322,6 +320,10 @@ function TranscriptTab({ m, goto, clearGoto }) {
   }
   return (
     <div role="tabpanel" aria-label={t("Transcrição")} className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="row wrap" role="group" aria-label={t('Oradores')}>
+        <span className="h-sub">{t('Oradores')}</span>
+        {m.speakers.map((speaker) => <SpeakerName key={speaker.key} meetingId={m.id} speaker={speaker} chip />)}
+      </div>
       <div className="row wrap" style={{ justifyContent: 'space-between' }}>
         <div className="row wrap">
           <div className="search-wrap" style={{ flex: '1 1 260px', maxWidth: 420 }}>
@@ -350,10 +352,7 @@ function TranscriptTab({ m, goto, clearGoto }) {
               <span className="bar" style={{ background: `var(--spk-${(sp ? sp.color : 0) % 8})` }} />
               <div className="col" style={{ gap: 2 }}>
                 <div className="who">
-                  {renaming === s.speakerKey
-                    ? <form onSubmit={async (e) => { e.preventDefault(); const n = e.target.elements.n.value; setRenaming(null); await call('speakers:rename', { id: m.id, key: s.speakerKey, name: n }); }}>
-                      <input name="n" className="input" style={{ height: 28 }} autoFocus defaultValue={sp ? sp.name : ''} placeholder={s.who} aria-label={`Nome de ${s.who}`} onBlur={() => setRenaming(null)} /></form>
-                    : <button type="button" title={t("Mudar o nome")} onClick={() => setRenaming(s.speakerKey)} style={{ border: 0, background: 'transparent', padding: 0, fontWeight: 700, textDecoration: 'underline dotted var(--border-strong)', textUnderlineOffset: 3 }}>{s.who}</button>}
+                  {sp ? <SpeakerName meetingId={m.id} speaker={sp} /> : <strong>{s.who}</strong>}
                   <span className="mono faint" style={{ fontSize: 12 }}>{clockStr(s.startMs)}</span>
                 </div>
                 <p>{highlightParts(s.text, q).map((p, i) => (p.hit ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}</p>
@@ -406,26 +405,74 @@ function ChatTab({ m, onCite }) {
   const t = useT();
   const { toast } = useApp();
   const [q, setQ] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState('');          // the question being answered (shown at once, before the saved chat catches up)
+  const [copied, setCopied] = useState(-1);
+  const thread = useRef(null);
+  const box = useRef(null);
+  const busy = !!pending;
+  const last = m.chat[m.chat.length - 1];
+  const showPending = busy && !(last && last.role === 'user' && last.text === pending);
+  const suggestions = ['Quem ficou com as tarefas?', 'O que ficou por decidir?'];
+
+  useEffect(() => { const el = thread.current; if (el) el.scrollTop = el.scrollHeight; }, [m.chat.length, busy]);
+  useEffect(() => {                                    // the box grows with what is typed, up to a limit
+    const el = box.current; if (!el) return;
+    el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [q]);
+
   async function ask(question) {
-    const t = question.trim(); if (!t) return;
-    setBusy(true); setQ('');
-    try { await call('chat:ask', { id: m.id, question: t }); } catch (e) { toast(friendly(e)); }
-    setBusy(false);
+    const text = question.trim(); if (!text || busy) return;
+    setPending(text); setQ('');
+    try { await call('chat:ask', { id: m.id, question: text }); } catch (e) { toast(friendly(e)); }
+    setPending('');
   }
+  async function copy(i, text) {
+    try { await navigator.clipboard.writeText(text); setCopied(i); setTimeout(() => setCopied((c) => (c === i ? -1 : c)), 1500); } catch { toast(t('Não foi possível copiar.')); }
+  }
+  const empty = m.chat.length === 0 && !busy;
   return (
-    <div role="tabpanel" aria-label={t("Conversa")} className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 760 }}>
-      {m.chat.length === 0 && <p className="muted">{t("Pergunta algo sobre esta reunião, por exemplo “quem ficou de avisar o suporte?”.")}</p>}
-      {m.chat.map((c, i) => c.role === 'user'
-        ? <div key={i} className="chat-user">{c.text}</div>
-        : <div key={i} className="chat-ai"><span className="h-sub">Ivuenu</span><p style={{ fontSize: 15, lineHeight: '24px' }}>{c.text} {hms(c.cite) && <a href="#" className="mono" style={{ fontSize: 12 }} onClick={(e) => { e.preventDefault(); onCite(parseClock(c.cite)); }}>{c.cite}</a>}</p></div>)}
-      <div className="row wrap">{['Quem ficou com as tarefas?', 'O que ficou por decidir?'].map((s) => <Chip key={s} onClick={() => ask(t(s))} disabled={busy}>{t(s)}</Chip>)}</div>
-      <form className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }} onSubmit={(e) => { e.preventDefault(); ask(q); }}>
-        <label className="sr-only" htmlFor="dt-ask">{t("Pergunta sobre esta reunião")}</label>
-        <input id="dt-ask" className="input lg grow" placeholder={t("Pergunta algo sobre esta reunião")} value={q} onChange={(e) => setQ(e.target.value)} />
-        <Button variant="primary" type="submit" disabled={busy || !q.trim()}>{t("Perguntar")}</Button>
-      </form>
-      <span className="muted" style={{ fontSize: 12 }}>{t("Só desta reunião. As respostas não usam outras reuniões nem a internet.")}</span>
+    <div role="tabpanel" aria-label={t("Conversa")} className="card chat">
+      <div className="chat-head">
+        <span className="chat-avatar"><Logo size={20} /></span>
+        <div><div className="t">Ivueno</div><div className="s">{t("Só desta reunião. As respostas não usam outras reuniões nem a internet.")}</div></div>
+      </div>
+      <div className="chat-thread" ref={thread} role="log" aria-live="polite" aria-label={t("Conversa")}>
+        {empty && (
+          <div className="chat-empty">
+            <span className="chat-avatar" style={{ width: 44, height: 44 }}><Logo size={28} /></span>
+            <p>{t("Pergunta algo sobre esta reunião, por exemplo “quem ficou de avisar o suporte?”.")}</p>
+          </div>
+        )}
+        {m.chat.map((c, i) => c.role === 'user'
+          ? <div key={i} className="chat-row me"><div className="chat-user">{c.text}</div></div>
+          : (
+            <div key={i} className="chat-row">
+              <span className="chat-avatar"><Logo size={20} /></span>
+              <div className="chat-ai">
+                <div className="chat-bubble">{c.text} {hms(c.cite) && <a href="#" className="mono" style={{ fontSize: 12 }} onClick={(e) => { e.preventDefault(); onCite(parseClock(c.cite)); }}>{c.cite}</a>}</div>
+                <div className="chat-tools">
+                  <IconButton icon={copied === i ? 'check' : 'copy'} size="sm" label={t(copied === i ? 'Copiado' : 'Copiar')} onClick={() => copy(i, c.text)} />
+                </div>
+              </div>
+            </div>
+          ))}
+        {showPending && <div className="chat-row me"><div className="chat-user">{pending}</div></div>}
+        {busy && (
+          <div className="chat-row">
+            <span className="chat-avatar"><Logo size={20} /></span>
+            <div className="chat-ai"><div className="chat-bubble" role="status" aria-label={t("A pensar…")}><span className="chat-typing" aria-hidden="true"><i /><i /><i /></span></div></div>
+          </div>
+        )}
+      </div>
+      <div className="chat-foot">
+        {m.chat.length < 2 && !busy && <div className="chat-suggest">{suggestions.map((s) => <Chip key={s} onClick={() => ask(t(s))}>{t(s)}</Chip>)}</div>}
+        <form className="chat-compose" onSubmit={(e) => { e.preventDefault(); ask(q); }}>
+          <label className="sr-only" htmlFor="dt-ask">{t("Pergunta sobre esta reunião")}</label>
+          <textarea id="dt-ask" ref={box} rows={1} placeholder={t("Pergunta algo sobre esta reunião")} value={q} onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); ask(q); } }} />
+          <Button variant="primary" type="submit" icon="send" aria-label={t("Perguntar")} title={t("Perguntar")} disabled={busy || !q.trim()} />
+        </form>
+      </div>
     </div>
   );
 }

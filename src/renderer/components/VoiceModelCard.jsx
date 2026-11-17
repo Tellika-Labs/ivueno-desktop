@@ -40,7 +40,7 @@ export default function VoiceModelCard() {
       )}
       {(st.state === 'missing' || st.state === 'error') && (
         <>
-          <span className="muted" style={{ fontSize: 13 }}>{t('Para separar as vozes, a Ivuenu precisa de um modelo pequeno ({mb} MB), transferido uma só vez. Funciona neste computador.', { mb: st.sizeMb })}</span>
+          <span className="muted" style={{ fontSize: 13 }}>{t('Para separar as vozes, a Ivueno precisa de um modelo pequeno ({mb} MB), transferido uma só vez. Funciona neste computador.', { mb: st.sizeMb })}</span>
           {st.state === 'error' && <Banner tone="warn" role="alert">{errorText(st.error, t)}</Banner>}
           {problem && <Banner tone="warn" role="alert">{problem}</Banner>}
           <div className="row"><Button onClick={() => setAsking(true)}>{st.partial > 0 ? t('Continuar a transferência') : t('Transferir ({mb} MB)', { mb: st.sizeMb })}</Button></div>

@@ -5,14 +5,18 @@ const {
   session: electronSession, desktopCapturer, globalShortcut,
 } = require('electron');
 
-const { Store } = require('./store');
+const { Store, DEFAULT_SETTINGS } = require('./store');
 const { Repo } = require('./repo');
 const { SecureStore } = require('./secure');
+const accounts = require('./accounts');
+const { Updater } = require('./updater');
 const { ApiClient } = require('./api');
+const { Telemetry, where: errorWhere } = require('./telemetry');
 const { LicenceManager } = require('./licence');
 const { createEngine } = require('./engine');
 const { CloudEngine } = require('./engine/cloud');
 const { AudioImporter } = require('./importer');
+const { MediaDecoder } = require('./media-decoder');
 const { SpeechModelManager } = require('./models');
 const voicesLib = require('./voices');
 const { VOICE_MODEL } = voicesLib;
@@ -29,14 +33,49 @@ const { SyncManager } = require('./sync');
 const { Pairing } = require('./pairing');
 const { AudioArchive, retentionUntil, purgeExpired } = require('./audio-archive');
 const { Refiner } = require('./refiner');
+const { isAppPage, validApiBase } = require('./origins');
 
-app.setAppUserModelId('ao.ivuenu.desktop');
+// Keep existing encrypted data in its original profile after the display rename.
+const inheritedUserData = app.getPath('userData');
+const legacyUserData = path.join(app.getPath('appData'), 'ivuenu-desktop');
+const defaultUserData = ['Ivueno', 'ivueno-desktop'].map((name) => path.join(app.getPath('appData'), name));
+const requestedUserData = process.env.IVUENO_USER_DATA_DIR || process.env.IVUENU_USER_DATA_DIR || app.commandLine.getSwitchValue('user-data-dir');
+app.setName('Ivueno');
+if (requestedUserData) app.setPath('userData', path.resolve(requestedUserData));
+else if (defaultUserData.includes(inheritedUserData) && fs.existsSync(path.join(legacyUserData, 'ivuenu-data.json'))
+         && !fs.existsSync(path.join(inheritedUserData, 'ivuenu-data.json'))) app.setPath('userData', legacyUserData);
+else app.setPath('userData', inheritedUserData);
+app.setAppUserModelId('ao.ivueno.desktop');
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
+app.whenReady().then(() => {
 const userData = app.getPath('userData');
-const store = new Store(path.join(userData, 'ivuenu-data.json'));
 const secure = new SecureStore(path.join(userData, 'ivuenu-secure.bin'), safeStorage);
-const apiBase = () => process.env.IVUENU_API_BASE || store.data.settings.apiBase;
+const { LocalCipher } = require('./local-cipher');
+const localCipher = new LocalCipher(secure);
+// Each account has its own folder of local data (accounts.js). Data from the old single-folder layout moves into its owner's folder.
+let activeId = accounts.getActive(userData);
+const legacyFile = path.join(userData, accounts.DATA_FILE);
+if (fs.existsSync(legacyFile)) {
+  const legacyOwner = new Store(legacyFile, { cipher: localCipher }).data.accountId || (!activeId && secure.get('user')?.id) || null;
+  if (legacyOwner && accounts.migrateLegacy(userData, legacyOwner) && !activeId) { accounts.setActive(userData, legacyOwner); activeId = legacyOwner; }
+}
+const dataDir = activeId ? accounts.accountDir(userData, activeId) : userData;
+const store = new Store(path.join(dataDir, accounts.DATA_FILE), { cipher: localCipher });
+// The folder is the identity of its data: it always belongs to the account it is named after. Without a folder yet (nobody signed in), the signed-in account claims it.
+const folderOwner = activeId || secure.get('user')?.id;
+if (!store.data.accountId && folderOwner) {
+  store.data.accountId = folderOwner;
+  store.flush();
+}
+const apiBase = () => {
+  let base = process.env.IVUENU_API_BASE || store.data.settings.apiBase;
+  // An installed app always talks to the production server built into it: an address saved by an older version (an earlier host, or a local test
+  // server from a development profile) must not keep an installed copy away from production. To use another server on purpose, set IVUENU_API_BASE.
+  if (app.isPackaged && !process.env.IVUENU_API_BASE) base = DEFAULT_SETTINGS.apiBase;
+  if (!validApiBase(base)) throw new Error('O servidor tem de usar HTTPS (HTTP apenas em localhost).');
+  return base;
+};
 const isLocalApi = () => /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(apiBase());
 
 let mainWin = null;
@@ -50,7 +89,7 @@ const broadcast = (channel, payload) => {
 
 let syncRef = null;      // set below; a change to meetings asks it to sync soon
 const repo = new Repo(store, (kind, id) => { broadcast('data:changed', { kind, id }); if (kind === 'meetings' && syncRef) syncRef.schedule(); });
-// Everything that needs AI runs in the cloud (the Ivuenu server, which uses Groq): see engine/router.js. The demonstration engine only supplies the plain,
+// Everything that needs AI runs in the cloud (the Ivueno server, which uses Groq): see engine/router.js. The demonstration engine only supplies the plain,
 // rule-based text writers as a fallback (and the scripted conversation when IVUENU_ENGINE=demo, for development).
 const demoEngine = createEngine('demo', { stepMs: Number(process.env.IVUENU_DEMO_STEP_MS) || 6000 });
 let licenceRef = null;      // set below; the router asks which plan features are on
@@ -62,8 +101,10 @@ const cloudEngine = new CloudEngine({
 });
 const engine = new EngineRouter({ cloud: cloudEngine, demo: demoEngine, demoSpeech: process.env.IVUENU_ENGINE === 'demo', getSettings: () => store.data.settings, hasFeature: (f) => ((licenceRef && licenceRef.status().features) || []).includes(f) });
 const session = new Session({ repo, engine });
-// Telling the voices of an imported recording apart needs one small model file (40 MB), downloaded only if the person agrees: see models.js and voices.js.
-const voiceDirs = [require('path').join(userData, 'models', 'voices'), require('path').join(require('os').homedir(), '.ivuenu', 'models', 'diarization')];
+// Telling the voices of an imported recording apart needs one small model file (40 MB). The installer carries it (extraResources -> <install folder>/resources/models),
+// so normally nothing is downloaded; the download in models.js stays as the fallback (e.g. a build made without it). See models.js and voices.js.
+const bundledModels = app.isPackaged ? require('path').join(process.resourcesPath, 'models') : require('path').join(__dirname, '..', '..', 'assets', 'models');
+const voiceDirs = [require('path').join(userData, 'models', 'voices'), bundledModels, require('path').join(require('os').homedir(), '.ivuenu', 'models', 'diarization')];
 const voiceModelPath = () => { for (const dir of voiceDirs) { const f = require('path').join(dir, VOICE_MODEL.name); try { if (fs.statSync(f).size === VOICE_MODEL.sizeBytes) return f; } catch { /* not here */ } } return null; };
 const voiceModels = new SpeechModelManager({
   dir: voiceDirs[0], name: VOICE_MODEL.name, single: true, sha256: VOICE_MODEL.sha256, sizeBytes: VOICE_MODEL.sizeBytes,
@@ -72,8 +113,10 @@ const voiceModels = new SpeechModelManager({
 });
 voiceModels.on('progress', (st) => broadcast('voices:progress', st));
 const voices = { available: () => !!voiceModelPath(), modelPath: voiceModelPath, identify: voicesLib.identify };
-const importer = new AudioImporter({ repo, engine, voices, tmpDir: require('os').tmpdir(), notes: (id) => session.generateNotes(id) });
+const importer = new AudioImporter({ repo, engine, voices, glossary: () => store.data.settings.glossary, tmpDir: require('os').tmpdir(), notes: (id) => session.generateNotes(id) });
 
+const archive = new AudioArchive({ dir: require('path').join(dataDir, 'audio'), cipher: localCipher });
+archive.migrate();
 // The accurate pass over a meeting's kept audio. The window decodes audio (Chromium has the decoders), so the refiner asks it for the samples of a block and waits.
 const pendingDecodes = new Map();
 function decodeInWindow(bytes) {
@@ -92,7 +135,7 @@ function decodeReply(reqId, pcm, error) {
   if (error || !pcm) pending.reject(Object.assign(new Error('decode failed'), { code: 'decode_failed' }));
   else pending.resolve(Buffer.from(pcm.buffer ? new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength) : new Uint8Array(pcm)));
 }
-const refiner = new Refiner({ repo, engine, archive, voices, notes: (id) => session.generateNotes(id), decode: decodeInWindow, policy: () => store.data.settings.audioKeep });
+const refiner = new Refiner({ repo, engine, archive, voices, notes: (id) => session.generateNotes(id), decode: decodeInWindow, policy: () => store.data.settings.audioKeep, glossary: () => store.data.settings.glossary });
 refiner.on('progress', (p) => broadcast('refine:progress', p));
 
 // When a meeting ends with its audio kept: decide until when, and (unless the person turned it off) improve the transcript from that audio.
@@ -101,7 +144,8 @@ session.on('finished', (id) => {
   if (!m || !m.audio || !m.audio.keep) return;
   if (!archive.has(id)) { repo.updateMeeting(id, { audio: null }); return; }
   repo.updateMeeting(id, { audio: { ...m.audio, keepUntil: retentionUntil(store.data.settings.audioKeep, Date.now()) } });
-  if (store.data.settings.refineAuto !== false) refiner.run(id).catch(() => {});
+  const mode = m.audio.mode || store.data.settings.refineMode;
+  if (mode === 'voices' || mode === 'text') refiner.run(id, { mode }).catch(() => {});
 });
 // Audio past its date is deleted when the app starts and every few hours after.
 for (const m of repo.d.meetings) if (m.refine && m.refine.state === 'running') repo.updateMeeting(m.id, { refine: { ...m.refine, state: 'failed', error: 'interrupted' } });      // the app closed in the middle of it
@@ -110,12 +154,17 @@ purgeAudio();
 setInterval(purgeAudio, 6 * 60 * 60 * 1000).unref();
 importer.on('progress', (p) => broadcast('import:progress', p));
 repo.recoverImports();
-const api = new ApiClient({ getBase: apiBase, secure, deviceName: `Ivuenu desktop em ${require('os').hostname()}` });
+const api = new ApiClient({ getBase: apiBase, secure, deviceName: `Ivueno desktop em ${require('os').hostname()}` });
 apiRef = api;
+// How the app is used (never what is said in it): see main/telemetry.js. IVUENU_TELEMETRY=off switches it off for a run.
+const telemetry = new Telemetry({
+  api, store, secure, version: app.getVersion(), platform: process.platform, packaged: app.isPackaged,
+  getLocale: () => store.data.settings.appLanguage, enabled: process.env.IVUENU_TELEMETRY !== 'off',
+});
+process.on('uncaughtExceptionMonitor', (err) => telemetry.error('main', err));      // watches only: Electron still handles the crash as before
 const sync = new SyncManager({ repo, store, api, secure, emit: () => broadcast('data:changed', { kind: 'sync' }) });
 syncRef = sync;
 const pairing = new Pairing({ api, secure, getBase: apiBase });
-const archive = new AudioArchive({ dir: require('path').join(userData, 'audio') });
 // Public keys that may sign licences, shipped inside the app. Empty in development (then the key is pinned on first
 // sign-in). In a release build this list must hold the production key(s): see backend/scripts/make_licence_key.py.
 function readKeyList(name) {
@@ -179,10 +228,32 @@ const services = {
     return text;
   },
   async wipeLocal() {
-    store.wipe(); secure.clear();
+    await sync.disable();
+    sync.stop();
+    for (const id of archive.ids()) archive.remove(id);
+    store.wipe(); secure.clear({ keep: ['localDataKey'] });      // the data key stays: other accounts on this computer need it
+    if (activeId) { try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* the folder is empty anyway */ } }
     broadcast('data:changed', { kind: 'all' });
   },
   setTheme: (t) => { nativeTheme.themeSource = t; },
+  bindAccount(id) {
+    const owner = store.data.accountId;
+    if (!owner || owner === id) {          // nobody owned this data yet (it was made before signing in), or it is already this account's
+      store.data.accountId = id;
+      store.flush();
+      return;
+    }
+    // Another account signs in on this computer: park the old account's own secrets in its folder, bring this account's back,
+    // point the app at this account's folder and restart so everything opens on it. The old account's data stays untouched.
+    store.flush();
+    try { accounts.stashKeys(secure, new SecureStore(path.join(accounts.accountDir(userData, owner), 'ivuenu-secure.bin'), safeStorage)); } catch { /* nothing to park */ }
+    try { accounts.restoreKeys(secure, new SecureStore(path.join(accounts.accountDir(userData, id), 'ivuenu-secure.bin'), safeStorage)); } catch { /* a new account has none */ }
+    accounts.setActive(userData, id);
+    setTimeout(() => {
+      if (app.isPackaged) app.relaunch();          // in development the dev script owns the window: start `npm run dev` again
+      app.exit(0);
+    }, 700);
+  },
   setIsland: () => syncIsland(session.snapshot()),
 };
 
@@ -205,46 +276,63 @@ function applyHotkeys() {
   const reg = (accel, fn) => { try { return accel ? globalShortcut.register(accel, fn) : null; } catch { return false; } };
   hotkeyResult = {
     dictation: s.dictation ? reg(s.hotkeyDictation, () => dictation.toggle()) : null,
-    island: reg(s.hotkeyIsland, () => ipcMain.emit('island:toggle')),
+    island: reg(s.hotkeyIsland, () => setIslandMode(islandWin && islandWin.mode === 'expanded' ? 'collapsed' : 'expanded')),
   };
   broadcast('data:changed', { kind: 'hotkeys' });
 }
 services.applyHotkeys = applyHotkeys;
 services.hotkeyStatus = () => hotkeyResult;
+services.refreshLanguage = () => {
+  buildTray(session.snapshot());
+  if (islandWin && !islandWin.isDestroyed()) islandWin.setTitle(nativeText('Ivueno · a gravar', 'Ivueno · recording', 'Ivueno · enregistrement'));
+};
 
-const handlers = createHandlers({ repo, session, engine, api, licence, secure, services, dictation, usage, sync, pairing, archive, refiner, decodeReply, importer, voices, voiceModels, version: app.getVersion() });
+const mediaDecoder = new MediaDecoder();
+app.on('before-quit', () => mediaDecoder.cancel());
+// Updates: only in an installed build (a development run has nothing to update). See updater.js and docs/RELEASING.md.
+const updater = new Updater({ autoUpdater: app.isPackaged ? require('electron-updater').autoUpdater : null, emit: broadcast, enabled: app.isPackaged });
+updater.start();
+const handlers = createHandlers({ repo, session, engine, api, licence, secure, services, dictation, usage, sync, pairing, archive, refiner, decodeReply, importer, mediaDecoder, voices, voiceModels, updater, version: app.getVersion() });
 
 // Allowed senders: our own pages only.
 const senderIsApp = (e) => {
   const url = e.senderFrame ? e.senderFrame.url : '';
-  return process.env.VITE_DEV_URL ? url.startsWith(process.env.VITE_DEV_URL) : url.startsWith('file://');
+  return isAppPage(url) && e.senderFrame === e.sender.mainFrame && [mainWin, islandWin].some((win) => win && !win.isDestroyed() && win.webContents === e.sender);
 };
 
 ipcMain.handle('ivuenu:call', async (event, channel, arg) => {
   if (!senderIsApp(event)) return { error: { code: 'forbidden', message: 'Origem não permitida.' } };
+  const publicCall = /^(auth:|sso:|onboarding:|system:|settings:)/.test(channel) || ['app:info', 'plans:list', 'licence:status', 'voices:status', 'hotkeys:status', 'referral:check', 'update:status'].includes(channel);
+  if (!publicCall && (!api.signedIn() || secure.get('user')?.id !== store.data.accountId)) return { error: { code: 'not_authenticated', message: 'Entra na tua conta para abrir os dados locais.' } };
   const fn = handlers[channel];
-  if (!fn) return { error: { code: 'unknown_channel', message: `Pedido desconhecido: ${channel}` } };
+  if (!Object.hasOwn(handlers, channel) || typeof fn !== 'function') return { error: { code: 'unknown_channel', message: `Pedido desconhecido: ${channel}` } };
+  const startedAt = Date.now();
   try {
-    return { value: await fn(arg) };
+    const value = await fn(arg);
+    telemetry.call(channel, Date.now() - startedAt, true);
+    return { value };
   } catch (err) {
+    telemetry.call(channel, Date.now() - startedAt, false, typeof err.code === 'string' ? err.code : 'error');
     const { code, message, stack, ...extra } = err;
     return { error: { code: err.code || 'error', message: err.message || 'Algo correu mal.', extra: { ...extra, status: err.status } } };
   }
 });
 
-ipcMain.on('rec:levels', (event, levels) => session.pushLevels(levels || {}));
-ipcMain.on('island:expand', () => setIslandMode('expanded'));
-ipcMain.on('island:collapse', () => setIslandMode('collapsed'));
-ipcMain.on('island:toggle', () => setIslandMode(islandWin && islandWin.mode === 'expanded' ? 'collapsed' : 'expanded'));
-ipcMain.on('island:open-main', () => showMain());
+const onApp = (channel, handler) => ipcMain.on(channel, (event, ...args) => { if (senderIsApp(event)) handler(event, ...args); });
+onApp('telemetry:event', (event, e) => { if (e && typeof e === 'object') telemetry.track(e.name, e.props); });     // checked against the allowlist inside
+onApp('rec:levels', (event, levels) => session.pushLevels(levels || {}));
+onApp('island:expand', () => setIslandMode('expanded'));
+onApp('island:collapse', () => setIslandMode('collapsed'));
+onApp('island:toggle', () => setIslandMode(islandWin && islandWin.mode === 'expanded' ? 'collapsed' : 'expanded'));
+onApp('island:open-main', () => showMain());
 
 // Window buttons of our own title bar (the window is frameless so it is one rounded surface).
-ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
-ipcMain.on('win:maximize', (e) => {
+onApp('win:minimize', (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
+onApp('win:maximize', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) { if (w.isMaximized()) w.unmaximize(); else w.maximize(); }
 });
-ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+onApp('win:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close());
 
 // --- the island -------------------------------------------------------------------------------------
 
@@ -259,6 +347,7 @@ function syncIsland(snap) {
   const want = (store.data.settings.island && ['recording', 'paused', 'writing', 'done'].includes(snap.phase)) || dictating;
   if (want && (!islandWin || islandWin.isDestroyed())) {
     islandWin = createIsland({ saved: store.data.settings.islandPos, onMoved: (p) => repo.patchSettings({ islandPos: p }) });
+    islandWin.setTitle(nativeText('Ivueno · a gravar', 'Ivueno · recording', 'Ivueno · enregistrement'));
     islandWin.once('ready-to-show', () => islandWin.showInactive());
   } else if (!want && islandWin && !islandWin.isDestroyed()) {
     islandWin.close(); islandWin = null;
@@ -282,15 +371,20 @@ function buildTray(snap) {
   const recording = snap.phase === 'recording' || snap.phase === 'paused';
   if (!tray) { tray = new Tray(trayImage(false)); tray.on('click', showMain); }
   tray.setImage(trayImage(snap.phase === 'recording'));
-  tray.setToolTip(recording ? `Ivuenu · ${snap.phase === 'paused' ? 'em pausa' : 'a gravar'} ${clock(snap.elapsedMs)}` : 'Ivuenu');
+  const state = snap.phase === 'paused' ? nativeText('Em pausa', 'Paused', 'En pause') : nativeText('A gravar', 'Recording', 'Enregistrement');
+  tray.setToolTip(recording ? `Ivueno · ${state} ${clock(snap.elapsedMs)}` : 'Ivueno');
   tray.setContextMenu(Menu.buildFromTemplate([
-    ...(recording ? [{ label: `${snap.phase === 'paused' ? 'Em pausa' : 'A gravar'} · ${clock(snap.elapsedMs)}`, enabled: false },
-      { label: 'Parar a gravação', click: () => session.stop() }] : []),
-    { label: 'Abrir a Ivuenu', click: showMain },
-    { label: 'Mostrar mini gravador', enabled: recording, click: () => setIslandMode('expanded') },
+    ...(recording ? [{ label: `${state} · ${clock(snap.elapsedMs)}`, enabled: false },
+      { label: nativeText('Parar a gravação', 'Stop recording', 'Arrêter l’enregistrement'), click: () => session.stop() }] : []),
+    { label: nativeText('Abrir a Ivueno', 'Open Ivueno', 'Ouvrir Ivueno'), click: showMain },
+    { label: nativeText('Mostrar mini gravador', 'Show mini recorder', 'Afficher le mini-enregistreur'), enabled: recording, click: () => setIslandMode('expanded') },
     { type: 'separator' },
-    { label: 'Sair', click: quitApp },
+    { label: nativeText('Sair', 'Quit', 'Quitter'), click: quitApp },
   ]));
+}
+
+function nativeText(pt, en, fr) {
+  return ({ pt, en, fr })[store.data.settings.appLanguage] || pt;
 }
 
 let lastTrayKey = '';
@@ -305,7 +399,7 @@ dictation.on('state', (snap) => {
   syncIsland(session.snapshot());
   if (snap.phase !== 'idle' && islandWin && !islandWin.isDestroyed()) setIslandMode('collapsed');
 });
-ipcMain.on('dictation:levels', (_e, levels) => { if (islandWin && !islandWin.isDestroyed()) islandWin.webContents.send('rec:levels', levels); });
+onApp('dictation:levels', (event, levels) => { if (islandWin && !islandWin.isDestroyed()) islandWin.webContents.send('rec:levels', levels); });
 session.on('segment', (payload) => broadcast('rec:segment', payload));
 session.on('levels', (levels) => { if (islandWin && !islandWin.isDestroyed()) islandWin.webContents.send('rec:levels', levels); });
 session.on('notes-state', (payload) => broadcast('data:changed', { kind: 'notes', ...payload }));
@@ -333,8 +427,9 @@ async function quitApp() {
   const busy = session.phase === 'recording' || session.phase === 'paused';
   if (busy) {
     const r = await dialog.showMessageBox({
-      type: 'question', buttons: ['Parar e sair', 'Continuar a gravar'], defaultId: 1, cancelId: 1,
-      message: 'Está a decorrer uma gravação.', detail: 'Se saíres agora, a gravação pára e as notas são escritas primeiro.',
+      type: 'question', buttons: [nativeText('Parar e sair', 'Stop and quit', 'Arrêter et quitter'), nativeText('Continuar a gravar', 'Keep recording', 'Continuer l’enregistrement')], defaultId: 1, cancelId: 1,
+      message: nativeText('Está a decorrer uma gravação.', 'A recording is in progress.', 'Un enregistrement est en cours.'),
+      detail: nativeText('Se saíres agora, a gravação pára e as notas são escritas primeiro.', 'If you quit now, recording stops and the notes are written first.', 'Si vous quittez maintenant, l’enregistrement s’arrête et les notes sont rédigées avant la fermeture.'),
     });
     if (r.response !== 0) return;
     await session.stop();
@@ -343,28 +438,38 @@ async function quitApp() {
 }
 
 app.on('second-instance', showMain);
-app.on('before-quit', () => { quitting = true; store.flush(); });
+app.on('before-quit', () => {
+  quitting = true; store.flush();
+  telemetry.track('app_close', { session_s: Math.round((Date.now() - telemetry.startedAt) / 1000) }); telemetry.stop();
+});
+app.on('render-process-gone', (_e, _contents, details) => telemetry.track('error', { source: 'renderer', name: 'process_gone', reason: details && details.reason }));
+app.on('child-process-gone', (_e, details) => telemetry.track('error', { source: 'main', name: 'child_gone', value: details && details.type, reason: details && details.reason }));
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { /* the tray keeps the app alive while recording */ });
 
-app.whenReady().then(async () => {
+return app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   // A packaged (release) app must carry the production licence public key. Without it the app would trust whatever key the
   // server shows on first sign-in, which is only acceptable while developing. Refuse to start instead of shipping that.
   if (app.isPackaged && releaseKeyCount() === 0) {
-    dialog.showErrorBox('Ivuenu', 'Esta versão foi criada sem a chave de licença (assets/licence-public-keys.json). Não pode ser usada.\n\nThis build was made without the licence key and cannot be used.');
+    dialog.showErrorBox('Ivueno', 'Esta versão foi criada sem a chave de licença (assets/licence-public-keys.json). Não pode ser usada.\n\nThis build was made without the licence key and cannot be used.');
     app.quit();
     return;
   }
   await brand.prewarm();
+  telemetry.track('app_open', { signed_in: api.signedIn(), onboarded: !!store.data.onboarded, packaged: app.isPackaged, first_run: !store.data.installId, lang: store.data.settings.appLanguage });
+  telemetry.start();
   nativeTheme.themeSource = store.data.settings.theme;
 
   const ses = electronSession.defaultSession;
   // Microphone and computer sound for our own pages only; nothing else may ask for anything.
-  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(['media', 'display-capture'].includes(permission)));
-  ses.setPermissionCheckHandler((_wc, permission) => ['media', 'display-capture'].includes(permission));
+  ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(
+    ['media', 'display-capture'].includes(permission) && contents && isAppPage(contents.getURL()) && details.isMainFrame === true && (!details.requestingUrl || isAppPage(details.requestingUrl))));
+  ses.setPermissionCheckHandler((contents, permission, origin, details) =>
+    ['media', 'display-capture'].includes(permission) && contents && isAppPage(contents.getURL()) && details.isMainFrame === true && (!details.requestingUrl || isAppPage(details.requestingUrl)));
   // "Computer sound" = Windows loopback audio, taken through the screen-capture API with the picture thrown away.
-  ses.setDisplayMediaRequestHandler((_request, callback) => {
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    if (!request.frame || !isAppPage(request.frame.url) || request.frame.parent) return callback({});
     desktopCapturer.getSources({ types: ['screen'] })
       .then((sources) => callback({ video: sources[0], audio: 'loopback' }))
       .catch(() => callback({}));
@@ -379,4 +484,8 @@ app.whenReady().then(async () => {
   sync.start();
   if (api.signedIn()) sync.syncNow().catch(() => {});
   if (api.signedIn()) licence.refresh().then(() => broadcast('licence:changed', licence.status())).catch(() => {});
+});
+}).catch((error) => {
+  dialog.showErrorBox('Ivueno', `Não foi possível abrir os dados protegidos: ${error.message}`);
+  app.quit();
 });

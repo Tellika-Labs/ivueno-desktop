@@ -68,7 +68,7 @@ test('initials and the clock', () => {
 
 test('error wording: ours, never the backend\'s English', () => {
   assert.equal(friendly({ code: 'invalid_credentials', message: 'email or password is wrong' }), 'O email ou a palavra-passe não estão certos.');
-  assert.match(friendly({ code: 'x', status: 502, message: 'bad gateway' }), /servidor da Ivuenu/);
+  assert.match(friendly({ code: 'x', status: 502, message: 'bad gateway' }), /servidor da Ivueno/);
   assert.equal(friendly({ code: 'x', message: 'some english thing' }), 'Algo correu mal. Tenta outra vez.');
   assert.equal(friendly({ code: 'x', message: 'Não foi possível escrever as notas.' }), 'Não foi possível escrever as notas.');
 });

@@ -95,7 +95,7 @@ function PairDialog({ onClose }) {
         {state === 'error' && <><Banner tone="error" role="alert">{error}</Banner><Button onClick={start}>{t('Tentar outra vez')}</Button></>}
         {state === 'waiting' && made && (
           <>
-            <p>{t('Abre a app Ivuenu no telemóvel, entra na tua conta e lê este código.')}</p>
+            <p>{t('Abre a app Ivueno no telemóvel, entra na tua conta e lê este código.')}</p>
             {made.qrSvg
               ? <img alt={t('Código QR para ligar o telemóvel')} width="220" height="220" style={{ background: '#fff', borderRadius: 8 }} src={`data:image/svg+xml;utf8,${encodeURIComponent(made.qrSvg)}`} />
               : (

@@ -1,3 +1,5 @@
+import { track, sizeBucket, durBucket } from '../lib/telemetry.js';
+import { useAutoTour } from './Tour.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import VoiceModelCard from './VoiceModelCard.jsx';
@@ -6,8 +8,12 @@ import { call, on } from '../lib/bridge.js';
 import { friendly } from '../lib/errors.mjs';
 import { useT } from '../lib/i18n.js';
 import { useApp } from '../lib/app-context.js';
-import { pcm16ToWavBytes, webmToPcm16 } from '../lib/pcm.mjs';
+import { pcm16ToWavBytes } from '../lib/pcm.mjs';
+import { decodeImport } from '../lib/import-decode.mjs';
 import { splitForUpload } from '../lib/segment.mjs';
+import spokenLanguages from '../../shared/spoken-languages.json';
+import LanguageDropdown from './LanguageDropdown.jsx';
+import Dropdown from './Dropdown.jsx';
 
 const MAX_BYTES = 1.5e9;
 const MAX_MS = 4 * 3600 * 1000;
@@ -29,9 +35,11 @@ const sizeLabel = (bytes) => (bytes >= 1e6 ? `${Math.round(bytes / 1e5) / 10} MB
  */
 export default function ImportDialog({ onClose, initialFile = null }) {
   const t = useT();
-  const { nav, toast } = useApp();
+  const { nav, toast, settings } = useApp();
+  useAutoTour('import');
   const [file, setFile] = useState(initialFile);
   const [title, setTitle] = useState('');
+  const [language, setLanguage] = useState(settings?.language || 'auto');
   const [rights, setRights] = useState(false);
   const [separate, setSeparate] = useState(true);
   const [people, setPeople] = useState(0);                 // 0 = find out
@@ -41,6 +49,7 @@ export default function ImportDialog({ onClose, initialFile = null }) {
   const [error, setError] = useState('');
   const cancelled = useRef(false);
   const importId = useRef(null);
+  const reading = useRef(false);
   const input = useRef(null);
 
   useEffect(() => { call('import:available').then(setAvail).catch(() => {}); }, []);
@@ -49,7 +58,11 @@ export default function ImportDialog({ onClose, initialFile = null }) {
     if (!importId.current || p.id !== importId.current) return;
     if (p.stage === 'voices') { setStage('voices'); setProgress(p.value ?? null); } else if (p.stage === 'notes') { setStage('writing'); setProgress(null); }
   }), []);
-  useEffect(() => () => { if (importId.current) { cancelled.current = true; call('import:cancel', { id: importId.current }).catch(() => {}); } }, []);
+  useEffect(() => () => {
+    cancelled.current = true;
+    if (reading.current) call('import:decodeCancel').catch(() => {});
+    if (importId.current) call('import:cancel', { id: importId.current }).catch(() => {});
+  }, []);
 
   const busy = stage !== 'pick';
   function choose(f) {
@@ -63,9 +76,12 @@ export default function ImportDialog({ onClose, initialFile = null }) {
     setError(''); cancelled.current = false;
     try {
       setStage('reading'); setProgress(null);
+      reading.current = true;
       const raw = await file.arrayBuffer();
-      let pcm;
-      try { pcm = new Int16Array(await webmToPcm16(raw.slice(0))); } catch { setError(t('Não foi possível ler este ficheiro. Experimenta MP3, WAV, M4A, OGG ou FLAC.')); setStage('pick'); return; }
+      if (cancelled.current) return;
+      const pcm = new Int16Array(await decodeImport(raw, (data) => call('import:decode', { data }), undefined, () => cancelled.current));
+      reading.current = false;
+      if (cancelled.current) return;
       const durationMs = Math.round(pcm.length / 16);
       if (durationMs > MAX_MS) { setError(t('A gravação é longa demais (máximo 4 horas).')); setStage('pick'); return; }
       if (pcm.length < 16000) { setError(t('Este ficheiro é curto demais.')); setStage('pick'); return; }
@@ -76,7 +92,11 @@ export default function ImportDialog({ onClose, initialFile = null }) {
         ? [{ startMs: 0, durationMs, mime, data: raw }]
         : splitForUpload(pcm).map((p) => ({ startMs: p.startMs, durationMs: p.durationMs, mime: 'audio/wav', data: pcm16ToWavBytes(pcm.subarray(p.from, p.to)) }));
 
-      const begun = await call('import:begin', { fileName: file.name, title: title.trim(), durationMs, rights: 'confirmed', separateVoices: separate, voiceCount: people });
+      const ext = extension(file.name).slice(0, 8) || 'none';
+      const tStart = Date.now();
+      track('feature', { name: 'import', stage: 'start', ext, size: sizeBucket(file.size), dur: durBucket(durationMs / 1000) });
+      const begun = await call('import:begin', { fileName: file.name, title: title.trim(), durationMs, language, rights: 'confirmed', separateVoices: separate, voiceCount: people });
+      if (cancelled.current) { await call('import:cancel', { id: begun.id }).catch(() => {}); return; }
       importId.current = begun.id; setStage('transcribing'); setProgress(pieces.length > 1 ? 0 : null);
       let done = 0;
       for (const p of pieces) {
@@ -96,17 +116,21 @@ export default function ImportDialog({ onClose, initialFile = null }) {
       setStage('writing'); setProgress(null);
       const r = await call('import:finish', { id: begun.id });
       importId.current = null;
+      track('feature', { name: 'import', stage: 'done', ext, ms: Date.now() - tStart, count: r.voices, ok: !r.voicesError });
       toast(r.voicesError ? t('Gravação importada, mas não foi possível separar as vozes.') : r.voices > 1 ? t('Gravação importada: {n} vozes encontradas.', { n: r.voices }) : t('Gravação importada.'));
       onClose();
       nav('detail', { id: r.meeting.id });
     } catch (e) {
+      if (cancelled.current) return;
       if (importId.current) { await call('import:cancel', { id: importId.current }).catch(() => {}); importId.current = null; }
+      track('feature', { name: 'import', stage: 'fail', code: e && typeof e.code === 'string' ? e.code : 'error' });
       setError(friendly(e)); setStage('pick');
-    }
+    } finally { reading.current = false; }
   }
 
   async function cancel() {
     cancelled.current = true;
+    if (reading.current) await call('import:decodeCancel').catch(() => {});
     if (importId.current) { await call('import:cancel', { id: importId.current }).catch(() => {}); importId.current = null; }
     onClose();
   }
@@ -120,6 +144,7 @@ export default function ImportDialog({ onClose, initialFile = null }) {
           <>
             <div
               className="card col"
+              data-tour="import-drop"
               style={{ padding: 20, alignItems: 'center', gap: 8, borderStyle: 'dashed', textAlign: 'center' }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); choose(e.dataTransfer.files && e.dataTransfer.files[0]); }}
@@ -130,13 +155,17 @@ export default function ImportDialog({ onClose, initialFile = null }) {
                 : <span>{t('Larga aqui um ficheiro de áudio, ou escolhe um.')}</span>}
               <input ref={input} type="file" accept={AUDIO_ACCEPT} style={{ display: 'none' }} data-testid="import-file" aria-label={t('Ficheiro de áudio')} onChange={(e) => choose(e.target.files && e.target.files[0])} />
               <Button onClick={() => input.current && input.current.click()}>{file ? t('Escolher outro') : t('Escolher ficheiro')}</Button>
-              <span className="muted" style={{ fontSize: 12 }}>{t('MP3, WAV, M4A, OGG, FLAC ou WEBM · até 4 horas')}</span>
+              <span className="muted" style={{ fontSize: 12 }}>{t('MP3, WAV, M4A, MP4, OGG, FLAC ou WEBM · até 4 horas')}</span>
             </div>
             <Field label={t('Título')} htmlFor="imp-title" optional>
               <input id="imp-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={file ? file.name.replace(/\.[^.]+$/, '') : ''} />
             </Field>
+            <Field label={t('Idioma falado')} htmlFor="imp-language">
+              <LanguageDropdown id="imp-language" label={t('Idioma falado')} value={language} onChange={setLanguage}
+                options={[{ id: 'auto', label: t('Automático') }, ...spokenLanguages]} />
+            </Field>
 
-            <div className="col" style={{ gap: 8 }}>
+            <div className="col" data-tour="import-voices" style={{ gap: 8 }}>
               <label className="row" style={{ gap: 10, cursor: 'pointer' }}>
                 <input type="checkbox" checked={separate} onChange={(e) => setSeparate(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
                 <span><strong>{t('Separar as vozes')}</strong> <span className="muted">{t('(Orador 1, Orador 2…)')}</span></span>
@@ -145,23 +174,21 @@ export default function ImportDialog({ onClose, initialFile = null }) {
                 <div className="col" style={{ gap: 10, paddingLeft: 28 }}>
                   <label className="row wrap" style={{ gap: 8 }}>
                     <span className="muted" style={{ fontSize: 13 }}>{t('Quantas pessoas falam?')}</span>
-                    <select className="select" style={{ height: 32 }} value={people} onChange={(e) => setPeople(Number(e.target.value))} aria-label={t('Quantas pessoas falam?')}>
-                      <option value={0}>{t('Descobrir sozinha')}</option>
-                      {[2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                    <Dropdown id="imp-people" label={t('Quantas pessoas falam?')} value={people} onChange={setPeople} compact
+                      options={[{ id: 0, label: t('Descobrir sozinha') }, ...[2, 3, 4, 5, 6, 7, 8].map(n => ({ id: n, label: String(n) }))]} />
                   </label>
                   {!avail.voices && <VoiceModelCard />}
                 </div>
               )}
             </div>
 
-            <label className="row" style={{ gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+            <label className="row" data-tour="import-rights" style={{ gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
               <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} style={{ accentColor: 'var(--accent)', marginTop: 4 }} />
               <span style={{ fontSize: 14 }}>{t('Tenho autorização para transcrever esta gravação (as pessoas que falam sabem, ou deram permissão).')}</span>
             </label>
-            <span className="muted" style={{ fontSize: 12 }}>{t('O áudio é enviado ao serviço de transcrição da Ivuenu e apagado logo a seguir. A reunião fica guardada neste computador. Gasta minutos de transcrição do teu plano.')}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{t('O áudio é enviado ao serviço de transcrição da Ivueno e apagado logo a seguir. A reunião fica guardada neste computador. Gasta minutos de transcrição do teu plano.')}</span>
             {error && <Banner tone="warn" role="alert">{error}</Banner>}
-            <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <div className="row" data-tour="import-go" style={{ justifyContent: 'flex-end' }}>
               <Button onClick={onClose}>{t('Cancelar')}</Button>
               <Button variant="primary" disabled={!file || !rights || !avail.ready} onClick={run}>{t('Importar e transcrever')}</Button>
             </div>

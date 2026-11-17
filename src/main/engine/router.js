@@ -1,5 +1,5 @@
 /**
- * Chooses the engine. Everything that needs AI runs in the cloud (the Ivuenu server, which uses Groq): transcription of recordings,
+ * Chooses the engine. Everything that needs AI runs in the cloud (the Ivueno server, which uses Groq): transcription of recordings,
  * imports and dictation, and notes, summaries, emails and the kind of meeting. The plain rule-based writers of the demonstration engine
  * are only the fallback for TEXT when the server cannot be reached or answers with an error: they never invent a transcript.
  * (`demoSpeech` plays the scripted conversation instead of listening: development only, IVUENU_ENGINE=demo.)

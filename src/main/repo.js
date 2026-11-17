@@ -178,14 +178,15 @@ class Repo {
   renameSpeaker(id, key, name) {
     const m = this._require(id);
     if (!m.speakers[key]) { const e = new Error('speaker_not_found'); e.code = 'not_found'; throw e; }
-    this.store.mutate(() => { m.speakers[key].name = String(name || '').slice(0, 80); m.updatedAt = nowIso(); });
+    this.store.mutate(() => { m.speakers[key].name = String(name || '').trim().slice(0, 80); m.updatedAt = nowIso(); });
     this.emit('meetings', id);
   }
 
   speakerName(m, key) {
     const s = m.speakers[key];
     if (s && s.name) return s.name;
-    if (s && s.isMe) return 'Tu';
+    if (s && s.isMe) return this.d.settings.appLanguage === 'fr' ? 'Vous' : 'Tu';
+    if (this.d.settings.appLanguage === 'fr') return `Intervenant ${String(key).replace('spk_', '')}`;
     return `Orador ${String(key).replace('spk_', '')}`;
   }
 
@@ -298,7 +299,7 @@ class Repo {
         openTasks: m.tasks.filter((t) => !t.hidden && !t.done).length,
         totalTasks: m.tasks.filter((t) => !t.hidden).length,
         keepTranscript: m.keepTranscript, attendeeCount: m.attendees.length,
-        createdAt: m.createdAt,
+        createdAt: m.createdAt, summary: (m.summary || '').slice(0, 240),     // a taste of the notes for the cards on Home
       }));
   }
 

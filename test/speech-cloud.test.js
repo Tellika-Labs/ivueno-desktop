@@ -85,13 +85,14 @@ test('dictation tells the person why the speech service failed, in words they ca
 
 test('the speech service is given the people of the meeting and the local terms, for imports and for live pieces alike', async () => {
   const { vocabularyPrompt } = require('../src/main/engine/vocab');
-  assert.equal(vocabularyPrompt({ attendees: [{ name: 'Rui Costa' }, { name: ' ' }, { name: 'Maria Lopes' }] }), 'Rui Costa, Maria Lopes, kwanzas, Multicaixa Express, Unitel, Africell, Luanda');
-  assert.equal(vocabularyPrompt({}), 'kwanzas, Multicaixa Express, Unitel, Africell, Luanda');
-  assert.equal(vocabularyPrompt(null), 'kwanzas, Multicaixa Express, Unitel, Africell, Luanda');
+  assert.equal(vocabularyPrompt({ attendees: [{ name: 'Rui Costa' }, { name: ' ' }, { name: 'Maria Lopes' }] }), 'Rui Costa, Maria Lopes');
+  assert.equal(vocabularyPrompt({ attendees: [{ name: 'Rui Costa' }] }, 'kwanzas; Unitel\n Multicaixa Express,'), 'Rui Costa, kwanzas, Unitel, Multicaixa Express');
+  assert.equal(vocabularyPrompt({}), '', 'there is no built-in glossary: a hint is only sent when it is the person\'s own');
+  assert.equal(vocabularyPrompt(null, 'kwanzas'), 'kwanzas');
   assert.ok(vocabularyPrompt({ attendees: Array.from({ length: 80 }, (_, i) => ({ name: `Pessoa Número ${i}` })) }).length <= 380);
   const sent = [];
   const e = engine({ cloudTranscribe: async (...a) => { sent.push(a); return { segments: [{ start_ms: 0, end_ms: 1000, text: 'olá' }] }; } }, { language: 'pt' });
   e.start({ id: 'm1', attendees: [{ name: 'Rui Costa' }] }, { final() {}, problem() {} }, () => 30000);
   await e.feed({ source: 'mic', mime: 'audio/webm', seconds: 8, data: new Uint8Array([1, 2]).buffer });
-  assert.equal(sent[0][4], 'Rui Costa, kwanzas, Multicaixa Express, Unitel, Africell, Luanda');
+  assert.equal(sent[0][4], 'Rui Costa');
 });

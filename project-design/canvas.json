@@ -1,4 +1,4 @@
-{"v":3,"createdOnFiles":{"v":1,"at":"2026-10-20T12:05:00Z"},"title":"Ivuenu","launch":{"view":"canvas"},"pages":[],
+{"v":3,"createdOnFiles":{"v":1,"at":"2026-10-20T12:05:00Z"},"title":"Ivueno","launch":{"view":"canvas"},"pages":[],
 "boards":{
 "Main.dc.html":{"x":0,"y":0,"w":1440,"h":2900,"title":"Fundamentos · tokens claro e escuro"},
 "Components.dc.html":{"x":1520,"y":0,"w":1440,"h":3200,"title":"Componentes"},
@@ -24,7 +24,7 @@
 },
 "order":["Main.dc.html","Components.dc.html","Home.dc.html","Start.dc.html","Live.dc.html","LiveDark.dc.html","Detail.dc.html","HomePhone.dc.html","StartPhone.dc.html","LivePhone.dc.html","DetailPhone.dc.html","States.dc.html","ActionItems.dc.html","Search.dc.html","Settings.dc.html","Auth.dc.html","Desktop.dc.html","Pricing.dc.html","Admin.dc.html","Island.dc.html","Dictation.dc.html"],
 "notes":{
-"t1":{"x":0,"y":-320,"text":"Ivuenu · sistema de design","kind":"title1","maxW":2960},
+"t1":{"x":0,"y":-320,"text":"Ivueno · sistema de design","kind":"title1","maxW":2960},
 "t2":{"x":0,"y":3300,"text":"Percurso principal · Início → Nova reunião → Ao vivo → Parar → Notas","kind":"title1","maxW":7520},
 "t3":{"x":0,"y":5120,"text":"Largura de telemóvel (web, 390 px)","kind":"title1","maxW":1800},
 "t4":{"x":0,"y":6384,"text":"Estados e ecrãs secundários","kind":"title1","maxW":6000},

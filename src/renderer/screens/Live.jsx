@@ -1,7 +1,9 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useAutoTour } from '../components/Tour.jsx';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../lib/i18n.js';
 import Icon from '../components/Icon.jsx';
-import { Banner, Button, IconButton, LevelBars, Chip, Avatar } from '../components/ui.jsx';
+import { Banner, Button, IconButton, LevelBars, Chip } from '../components/ui.jsx';
+import SpeakerName from '../components/SpeakerName.jsx';
 import { useApp } from '../lib/app-context.js';
 import { useMeeting, useDebounced } from '../lib/hooks.js';
 import { audioBus } from '../lib/audio.js';
@@ -22,6 +24,7 @@ export default function Live() {
   const meeting = useMeeting(id);
   const m = meeting.data;
   const active = rec && (rec.phase === 'recording' || rec.phase === 'paused');
+  useAutoTour('live', !!active);
 
   // --- notes (autosave 1 s after the last key; text from the island is merged in when you are not typing) ---
   const [notes, setNotes] = useState('');
@@ -82,21 +85,14 @@ export default function Live() {
     setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
   }
 
-  // --- speakers ---
-  const [renaming, setRenaming] = useState(null);
-  async function rename(key, name) {
-    setRenaming(null);
-    try { await call('speakers:rename', { id, key, name }); } catch (e) { toast(friendly(e)); }
-  }
-
   // --- helps ---
   const [help, setHelp] = useState(null);
   const [helpBusy, setHelpBusy] = useState(false);
   async function runHelp(h) {
-    if (help && help.id === h.id) { setHelp(null); return; }
+    if (help && help.id === h.id && !help.failed) { setHelp(null); return; }      // a failed help runs again on the next click
     setHelp({ id: h.id, label: t(h.label), text: '…' }); setHelpBusy(true);
     try { const r = await call('recipes:run', { id, recipeId: h.id, live: true }); setHelp({ id: h.id, label: t(h.label), text: r.text }); }
-    catch (e) { setHelp({ id: h.id, label: t(h.label), text: friendly(e) }); }
+    catch (e) { setHelp({ id: h.id, label: t(h.label), text: friendly(e), failed: e.retryable !== false }); }
     setHelpBusy(false);
   }
 
@@ -123,7 +119,7 @@ export default function Live() {
 
   return (
     <div className="live">
-      <header className="live-head">
+      <header className="live-head" data-tour="live-head">
         <div className="rec-pill" role="status" aria-label={t(rec.phase === 'paused' ? 'Em pausa, {time}' : 'A gravar, {time}', { time: clockStr(rec.elapsedMs) })}>
           {rec.phase === 'paused' ? <span className="dot-sq" style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--text-3)' }} /> : <span className="rec-dot" />}
           <b>{rec.phase === 'paused' ? t('Em pausa') : t('A gravar')}</b><span className="mono" style={{ fontSize: 15 }}>{clockStr(rec.elapsedMs)}</span>
@@ -139,7 +135,7 @@ export default function Live() {
         <IconButton icon="miniWindow" label={t("Abrir o mini gravador")} bordered onClick={() => send('island:toggle')} />
         <IconButton icon={rec.phase === 'paused' ? 'play' : 'pause'} label={rec.phase === 'paused' ? 'Retomar' : 'Pausar'} bordered
           onClick={() => call(rec.phase === 'paused' ? 'rec:resume' : 'rec:pause')} />
-        <Button variant="dark" onClick={stop} disabled={stopping}><Icon name="stop" size={14} stroke={0} style={{ fill: 'currentColor' }} />{stopping ? 'A parar…' : 'Parar'}</Button>
+        <Button variant="dark" data-tour="live-stop" onClick={stop} disabled={stopping}><Icon name="stop" size={14} stroke={0} style={{ fill: 'currentColor' }} />{stopping ? 'A parar…' : 'Parar'}</Button>
       </header>
 
       {(audioErrors.includes('mic') || audioErrors.includes('system') || audioErrors.includes('system_silent') || rec.quiet) && (
@@ -154,7 +150,7 @@ export default function Live() {
       )}
 
       <div className="live-body">
-        <section className="pane-tr" aria-labelledby="lv-tr">
+        <section className="pane-tr" data-tour="live-transcript" aria-labelledby="lv-tr">
           <div className="pane-head" style={{ padding: '14px 24px 10px' }}>
             <h2 id="lv-tr" style={{ fontSize: 14, fontWeight: 700 }}>{t("Transcrição ao vivo")}</h2>
             <div className="row">
@@ -171,7 +167,7 @@ export default function Live() {
                 <div className="line" key={s.id}>
                   <span className="bar" style={{ background: `var(--spk-${(sp ? sp.color : 0) % 8})` }} />
                   <div className="col" style={{ gap: 2 }}>
-                    <div className="who"><strong>{s.who}</strong><span className="mono faint" style={{ fontSize: 12 }}>{clockStr(s.startMs)}</span></div>
+                    <div className="who">{sp ? <SpeakerName meetingId={id} speaker={sp} /> : <strong>{s.who}</strong>}<span className="mono faint" style={{ fontSize: 12 }}>{clockStr(s.startMs)}</span></div>
                     <p>{s.text}</p>
                     {s.translation && <p className="tr">{s.translation}</p>}
                   </div>
@@ -180,7 +176,7 @@ export default function Live() {
             })}
             {rec.partial && (
               <div className="line partial"><span className="bar" style={{ background: 'var(--border-strong)' }} />
-                <div className="col" style={{ gap: 2 }}><div className="who"><strong>{rec.partial.who}</strong><span className="faint" style={{ fontSize: 12 }}>{t("a falar…")}</span></div><p>{rec.partial.text}</p></div></div>
+                <div className="col" style={{ gap: 2 }}><div className="who"><strong>{m?.speakers.find((speaker) => speaker.key === rec.partial.speakerKey)?.display || rec.partial.who}</strong><span className="faint" style={{ fontSize: 12 }}>{t("a falar…")}</span></div><p>{rec.partial.text}</p></div></div>
             )}
           </div>
           {!pinned && unseen > 0 && (
@@ -190,7 +186,7 @@ export default function Live() {
           )}
         </section>
 
-        <section className="pane-notes" aria-labelledby="lv-notes">
+        <section className="pane-notes" data-tour="live-notes" aria-labelledby="lv-notes">
           <div className="pane-head" style={{ padding: '14px 32px 10px' }}>
             <h2 id="lv-notes" style={{ fontSize: 20, lineHeight: '28px', fontWeight: 700 }}>{t("As tuas notas")}</h2>
             <div className="row" style={{ gap: 2 }} role="toolbar" aria-label={t("Formatação")}>
@@ -203,26 +199,17 @@ export default function Live() {
             placeholder={t("Escreve aqui o que for importante. O resto, deixa connosco.")} />
           <div className="row wrap" style={{ justifyContent: 'space-between', padding: '10px 32px', fontSize: 12, color: 'var(--text-2)', borderTop: '1px solid var(--border)' }}>
             <span className="row" style={{ gap: 6 }}><Icon name="laptop" size={14} stroke={1.8} />{t("Guardada neste computador.")}</span>
-            <span>{t("A Ivuenu completa as tuas notas quando parares. O que escreves nunca é substituído.")}</span>
+            <span>{t("A Ivueno completa as tuas notas quando parares. O que escreves nunca é substituído.")}</span>
           </div>
         </section>
       </div>
 
       <footer className="live-foot">
-        <div className="row wrap" aria-label={t("Oradores")}>
+        <div className="row wrap" data-tour="live-speakers" aria-label={t("Oradores")}>
           <span className="h-sub" style={{ marginRight: 4 }}>{t("Oradores")}</span>
-          {m && m.speakers.map((s) => renaming === s.key ? (
-            <form key={s.key} onSubmit={(e) => { e.preventDefault(); rename(s.key, e.target.elements.n.value); }}>
-              <input name="n" className="input" style={{ height: 30, width: 150 }} autoFocus defaultValue={s.name} placeholder={s.display}
-                aria-label={`Nome de ${s.display}`} onBlur={(e) => rename(s.key, e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} />
-            </form>
-          ) : (
-            <button key={s.key} type="button" className="spk-chip" title={t("Clica para mudar o nome")} onClick={() => setRenaming(s.key)}>
-              <Avatar color={s.color} size="sm" initials={s.initials} />{s.display}{s.isMe ? ` ${t('(tu)')}` : ''}
-            </button>
-          ))}
+          {m && m.speakers.map((s) => <SpeakerName key={s.key} meetingId={id} speaker={s} chip />)}
         </div>
-        <div className="row wrap" role="group" aria-label={t("Ajudas ao vivo")}>
+        <div className="row wrap" data-tour="live-helps" role="group" aria-label={t("Ajudas ao vivo")}>
           {LIVE_HELPS.map((h) => <Chip key={h.id} pressed={help && help.id === h.id} onClick={() => runHelp(h)}>{t(h.label)}</Chip>)}
         </div>
         {help && (
@@ -230,7 +217,7 @@ export default function Live() {
             <div className="row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 15 }}>{help.label}</strong><IconButton icon="close" size="sm" label={t("Fechar")} onClick={() => setHelp(null)} /></div>
             <p aria-busy={helpBusy}>{help.text}</p>
             <div className="row" style={{ justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-              <span className="muted row" style={{ fontSize: 12, gap: 6 }}><Icon name="lock" size={14} stroke={1.8} />{t('Só tu vês isto')}{demo ? ` · ${t('extraído da conversa, sem IA')}` : ` · ${t('escrito pela Ivuenu')}`}</span>
+              <span className="muted row" style={{ fontSize: 12, gap: 6 }}><Icon name="lock" size={14} stroke={1.8} />{t('Só tu vês isto')}{demo ? ` · ${t('extraído da conversa, sem IA')}` : ` · ${t('escrito pela Ivueno')}`}</span>
               <Button size="sm" icon="copy" onClick={() => { navigator.clipboard.writeText(help.text).then(() => toast(t('Copiado'))); }}>{t("Copiar")}</Button>
             </div>
           </div>

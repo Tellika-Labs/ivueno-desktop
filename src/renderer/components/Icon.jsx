@@ -25,6 +25,8 @@ const ICONS = {
   close: <>{P('M6 6l12 12M18 6 6 18')}</>,
   chevronDown: <>{P('m6 9 6 6 6-6')}</>,
   chevronUp: <>{P('m6 15 6-6 6 6')}</>,
+  sidebar: <><rect x="3.5" y="4.5" width="17" height="15" rx="3" />{P('M9.5 4.5v15')}</>,
+  clock: <><circle cx="12" cy="12" r="8.5" />{P('M12 7.5V12l3 2')}</>,
   back: <>{P('m15 6-6 6 6 6')}</>,
   check: <>{P('m5 12.5 4.5 4.5L19 7.5')}</>,
   pause: <><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></>,
@@ -39,6 +41,7 @@ const ICONS = {
   sliders: <>{P('M4 7h10M18 7h2M4 17h4M12 17h8')}<circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></>,
   info: <><circle cx="12" cy="12" r="8.5" />{P('M12 11v5M12 7.8v.3')}</>,
   alert: <><circle cx="12" cy="12" r="8.5" />{P('M12 7.5v5.5M12 16.2v.3')}</>,
+  send: <>{P('M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z')}</>,
   arrowDown: <>{P('M12 5v14M6 13l6 6 6-6')}</>,
   org: <><rect x="4" y="3.5" width="16" height="17" rx="2" />{P('M8.5 8h2M13.5 8h2M8.5 12h2M13.5 12h2')}</>,
 };

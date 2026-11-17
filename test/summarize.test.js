@@ -36,7 +36,7 @@ test('the cloud engine asks the server for the summary in its own format', async
   assert.deepEqual(out, { text: 'Resumo da nuvem', engine: 'cloud' });
   assert.deepEqual(sent[0], { scope: 'notes', title: 'T', text: 'x', style: 'short', language: 'en', redact: false });
   await cloud.summarize({ scope: 'meeting', text: 'y', style: 'normal', language: 'xx', meeting: {} });
-  assert.deepEqual([sent[1].language, sent[1].redact], ['pt', true]);                                                  // anything but English is Portuguese; masking is on unless switched off
+  assert.deepEqual([sent[1].language, sent[1].redact], ['auto', true]); // unsupported output choices follow the source language
 });
 
 test('the router: the server first when the plan has it; if it fails, the person still gets an extract', async () => {

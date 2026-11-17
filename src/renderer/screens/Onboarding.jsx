@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon, { Logo } from '../components/Icon.jsx';
 import LangSelect from '../components/LangSelect.jsx';
+import Dropdown from '../components/Dropdown.jsx';
 import { Button, Field } from '../components/ui.jsx';
 import Auth from './Auth.jsx';
 import { useApp } from '../lib/app-context.js';
@@ -22,8 +23,8 @@ export default function Onboarding({ onDone }) {
 
   return (
     <div className="wizard">
-      <nav className="wizard-steps" aria-label="Passos">
-        <div className="row" style={{ gap: 10, fontSize: 17, fontWeight: 700 }}><Logo size={26} />ivuenu</div>
+      <nav className="wizard-steps" aria-label={t('Passos')}>
+        <div className="row" style={{ gap: 10, fontSize: 17, fontWeight: 700 }}><Logo size={26} />ivueno</div>
         <ol>
           {STEP_KEYS.map((k, i) => (
             <li key={k} aria-current={i === step ? 'step' : undefined}>
@@ -172,10 +173,8 @@ function Mic({ t, settings, patch, onNext, onBack }) {
       <h1 className="display">{t('mic.title')}</h1>
       <div className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Field label={t('mic.title')} htmlFor="fr-mic">
-          <select id="fr-mic" className="select" style={{ height: 40 }} value={settings.micId} onChange={(e) => patch({ micId: e.target.value })}>
-            <option value="">{t('mic.default')}</option>
-            {mics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
+          <Dropdown id="fr-mic" label={t('mic.title')} icon="mic" style={{ height: 40 }} value={settings.micId} onChange={micId => patch({ micId })}
+            options={[{ id: '', label: t('mic.default') }, ...mics.map(m => ({ id: m.id, label: m.label }))]} />
         </Field>
         <span style={{ fontSize: 13 }}>{t('mic.say')}</span>
         <div className="meter" role="meter" aria-label={t('mic.level')} aria-valuenow={Math.round(level * 100)} aria-valuemin={0} aria-valuemax={100}>

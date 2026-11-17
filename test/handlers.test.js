@@ -57,6 +57,36 @@ test('a meeting view carries speaker names, colours and initials', async () => {
   assert.equal(v.segments[0].who, 'Bruno Fernandes');
 });
 
+test('renaming a speaker updates every past and future phrase, search and exports, and persists per meeting', async () => {
+  const { h, repo, calls } = setup();
+  const m = repo.createMeeting({ title: 'Speaker rename' });
+  const other = repo.createMeeting({ title: 'Another meeting' });
+  repo.addSegments(m.id, [
+    { text: 'First phrase.', speakerKey: 'spk_1' },
+    { text: 'Another person.', speakerKey: 'spk_2' },
+    { text: 'Second phrase.', speakerKey: 'spk_1' },
+  ]);
+  repo.addSegments(other.id, [{ text: 'A different meeting.', speakerKey: 'spk_1' }]);
+  const before = repo.getMeeting(m.id).segments.map(({ id, speakerKey, text }) => ({ id, speakerKey, text }));
+  const renamed = await h['speakers:rename']({ id: m.id, key: 'spk_1', name: '  Carlos Silva  ' });
+  assert.deepEqual(renamed.segments.map((s) => s.who), ['Carlos Silva', 'Orador 2', 'Carlos Silva']);
+  assert.deepEqual(repo.getMeeting(m.id).segments.map(({ id, speakerKey, text }) => ({ id, speakerKey, text })), before);
+  repo.addSegments(m.id, [{ text: 'Future phrase.', speakerKey: 'spk_1' }]);
+  assert.equal((await h['meetings:get'](m.id)).segments.at(-1).who, 'Carlos Silva');
+  assert.equal((await h['meetings:get'](other.id)).segments[0].who, 'Orador 1');
+  assert.equal(repo.search('First phrase').results[0].hits[0].speaker, 'Carlos Silva');
+  await h['export:run']({ id: m.id, format: 'copy', includeTranscript: true });
+  assert.match(calls.clip[0], /Carlos Silva/);
+  assert.doesNotMatch(calls.clip[0], /Orador 1/);
+  repo.store.flush();
+  const { Store } = require('../src/main/store');
+  const { Repo } = require('../src/main/repo');
+  const reloaded = new Repo(new Store(repo.store.file));
+  assert.equal(reloaded.speakerName(reloaded.getMeeting(m.id), 'spk_1'), 'Carlos Silva');
+  const cleared = await h['speakers:rename']({ id: m.id, key: 'spk_1', name: '   ' });
+  assert.ok(cleared.segments.filter((s) => s.speakerKey === 'spk_1').every((s) => s.who === 'Orador 1'));
+});
+
 test('export: copy, markdown, docx, pdf go through the injected services; tasks open a mail draft only', async () => {
   const { h, repo, calls } = setup();
   const m = repo.createMeeting({ title: 'Revisão: Q4/2026?', attendees: [{ name: 'Domingos', email: 'd@exemplo.ao' }] });
@@ -89,18 +119,60 @@ test('only https and mailto links may be opened', async () => {
 test('a hosted checkout opens only when it is a page on the WiPay host', async () => {
   const { h, calls } = setup();
   await h['billing:openCheckout']({ url: 'https://hosted.wipay.ao/?id=abc&nonce=1' });
-  for (const bad of ['https://evil.example/?id=abc', 'http://hosted.wipay.ao/?id=abc', 'https://hosted.wipay.ao.evil.example/', 'file:///C:/Windows/System32/calc.exe', 'not a url', '']) {
+  await h['billing:openCheckout']({ url: 'https://pay.wiza.ao/?id=abc&nonce=1' });       // the sandbox answers with this host
+  for (const bad of ['https://evil.example/?id=abc', 'http://hosted.wipay.ao/?id=abc', 'https://hosted.wipay.ao.evil.example/', 'https://pay.wiza.ao.evil.example/', 'http://pay.wiza.ao/', 'https://name@hosted.wipay.ao/?id=abc', 'https://hosted.wipay.ao:444/?id=abc', 'https://hosted.wipay.ao/', 'https://hosted.wipay.ao/?id=' + 'x'.repeat(81), 'https://hosted.wipay.ao/?id=abc&nonce=' + 'x'.repeat(500), 'file:///C:/Windows/System32/calc.exe', 'not a url', '']) {
     await assert.rejects(() => h['billing:openCheckout']({ url: bad }), (e) => e.code === 'blocked', bad);
+    await assert.rejects(() => h['billing:checkoutPage']({ url: bad }), (e) => e.code === 'blocked', bad);
   }
-  assert.deepEqual(calls.opened, ['https://hosted.wipay.ao/?id=abc&nonce=1']);
+  assert.deepEqual(calls.opened, ['https://hosted.wipay.ao/?id=abc&nonce=1', 'https://pay.wiza.ao/?id=abc&nonce=1']);
+});
+
+test('embedding validates the checkout without opening the browser', async () => {
+  const { h, calls } = setup();
+  for (const host of ['hosted.wipay.ao', 'pay.wiza.ao']) {
+    const url = `https://${host}/?id=abc&nonce=1`;
+    assert.deepEqual(await h['billing:checkoutPage']({ url }), { url });
+  }
+  assert.deepEqual(calls.opened, []);
+});
+
+test('remote frames stay on WiPay while browser-return pages and foreign destinations are blocked', () => {
+  const { isHostedFrameUrl } = require('../src/main/payment-pages');
+  assert.equal(isHostedFrameUrl('https://pay.wiza.ao/?id=abc'), true);
+  assert.equal(isHostedFrameUrl('https://hosted.wipay.ao/choose-method'), true);
+  for (const url of ['https://api.example.test/account/payment/success', 'https://evil.example/',
+    'https://pay.wiza.ao.evil.example/', 'https://pay.wiza.ao:444/', 'http://pay.wiza.ao/', 'not a url']) {
+    assert.equal(isHostedFrameUrl(url), false, url);
+  }
+});
+
+test('payment verification frames require an uninterrupted WiPay ancestor chain', () => {
+  const { isAllowedPaymentFrame } = require('../src/main/payment-pages');
+  const challenge = 'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/test';
+  const checkout = 'https://pay.wiza.ao/?id=payment';
+  const app = 'file:///app/index.html';
+  assert.equal(isAllowedPaymentFrame(challenge, [checkout, app]), true);
+  assert.equal(isAllowedPaymentFrame(challenge, [challenge, checkout, app]), true);
+  assert.equal(isAllowedPaymentFrame(challenge, [app]), false);
+  assert.equal(isAllowedPaymentFrame(challenge, ['https://evil.example/', checkout]), false);
+  assert.equal(isAllowedPaymentFrame('https://challenges.cloudflare.com.evil.example/', [checkout]), false);
+  assert.equal(isAllowedPaymentFrame('http://challenges.cloudflare.com/', [checkout]), false);
+  assert.equal(isAllowedPaymentFrame('https://challenges.cloudflare.com:444/', [checkout]), false);
+  assert.equal(isAllowedPaymentFrame(checkout, [app]), true);
 });
 
 test('the calendar address is never returned, only whether it is connected and its host', async () => {
   const { h, secure } = setup();
-  assert.deepEqual(await h['calendar:status'](), { connected: false, host: '' });
+  const { available, ...off } = await h['calendar:status']();
+  assert.deepEqual(off, { connected: false, provider: null, host: '' });
   secure.set('calendarUrl', 'webcal://calendar.exemplo.ao/private/abcdef/basic.ics');
-  const s = await h['calendar:status']();
-  assert.deepEqual(s, { connected: true, host: 'calendar.exemplo.ao' });
+  const { available: _a, ...s } = await h['calendar:status']();
+  assert.deepEqual(s, { connected: true, provider: 'ics', host: 'calendar.exemplo.ao' });
+  secure.set('calendarAuth', { provider: 'google', refreshToken: 'secret-token' });
+  const g = await h['calendar:status']();
+  assert.equal(g.provider, 'google');
+  assert.ok(!JSON.stringify(g).includes('secret-token'), 'the token never leaves the main process');
+  await assert.rejects(() => h['calendar:connect']('google'), (e) => e.code === 'invalid', 'refuses when no client id is configured');
   await assert.rejects(() => h['calendar:set']('http://insecure.example/x.ics'), (e) => e.code === 'invalid');
 });
 

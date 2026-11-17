@@ -112,7 +112,7 @@ function archiver(stream, source, { t0, offsetMs, peaks, current, onBlock }) {
  * Start measuring. Returns { stop, flush, errors } where errors lists 'mic' and/or 'system' when that source is missing.
  * onLevels({mic, sys}) is called every 100 ms. With onChunk, pieces of audio are produced too: onChunk({source, mime, seconds, data}).
  */
-export async function startMeter({ micId = '', captureSystem = true, onLevels, onChunk = null, format = 'webm', chunkMs = 25000, pauseCut = true, onBlock = null, offsetMs = 0, expectSystem = false, onWarn = null }) {
+export async function startMeter({ micId = '', captureSystem = true, onLevels, onChunk = null, format = 'webm', chunkMs = 25000, pauseCut = true, onBlock = null, offsetMs = 0, expectSystem = false, onWarn = null, rawMic = false }) {
   const ctx = new AudioContext();
   const t0 = performance.now();
   const streams = [];
@@ -127,7 +127,10 @@ export async function startMeter({ micId = '', captureSystem = true, onLevels, o
 
   let mic = null; let sys = null; let micStream = null; let sysStream = null;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId } } : true, video: false });
+    // rawMic (everybody in the room, no call): the browser's echo cancelling, noise suppression and automatic gain are switched off. There is no speaker to cancel, and
+    // they flatten what tells one voice from another, which is exactly what is needed afterwards to separate the people.
+    const raw = rawMic ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : {};
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { ...raw, deviceId: { exact: micId } } : (rawMic ? raw : true), video: false });
     streams.push(stream); micStream = stream; mic = make(stream);
   } catch { errors.push('mic'); }
 

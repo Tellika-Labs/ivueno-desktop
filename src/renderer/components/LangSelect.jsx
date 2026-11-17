@@ -1,5 +1,5 @@
 import React from 'react';
-import Icon from './Icon.jsx';
+import LanguageDropdown from './LanguageDropdown.jsx';
 import { useApp } from '../lib/app-context.js';
 import { LANGUAGES, useT } from '../lib/i18n.js';
 
@@ -9,12 +9,8 @@ export default function LangSelect({ id = 'lang-select', compact = false }) {
   const t = useT();
   return (
     <div className="row lang-select" style={{ gap: 8 }}>
-      <Icon name="language" size={16} stroke={1.8} style={{ color: 'var(--text-2)' }} />
-      <label className="sr-only" htmlFor={id}>{t('lang.label')}</label>
-      <select id={id} className="select" style={{ height: compact ? 30 : 36, fontSize: 13 }} value={settings.appLanguage || 'pt'}
-        onChange={(e) => patchSettings({ appLanguage: e.target.value })}>
-        {LANGUAGES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-      </select>
+      <LanguageDropdown id={id} label={t('lang.label')} value={settings.appLanguage || 'pt'} options={LANGUAGES}
+        compact={compact} onChange={appLanguage => patchSettings({ appLanguage })} />
     </div>
   );
 }

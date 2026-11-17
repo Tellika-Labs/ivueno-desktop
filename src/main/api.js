@@ -1,10 +1,10 @@
 /**
- * Client for the Ivuenu backend (backend/openapi.json). Keeps the sign-in tokens, refreshes the short-lived access
+ * Client for the Ivueno backend (backend/openapi.json). Keeps the sign-in tokens, refreshes the short-lived access
  * token once when a call is refused, and turns the backend's error envelope into one Error shape:
  * { code, message, status, details }. Errors that mean "no network" use code 'offline'.
  */
 class ApiClient {
-  constructor({ getBase, secure, fetchImpl = globalThis.fetch, deviceName = 'Ivuenu desktop' }) {
+  constructor({ getBase, secure, fetchImpl = globalThis.fetch, deviceName = 'Ivueno desktop' }) {
     this.getBase = getBase;
     this.secure = secure;
     this.fetch = fetchImpl;
@@ -17,6 +17,7 @@ class ApiClient {
 
   async _send(method, path, { body, rawBody, contentType, binary = false, query, auth = true, headers = {} } = {}) {
     const url = new URL(path, this.getBase());
+    if (!require('./origins').validApiBase(this.getBase()) || url.origin !== new URL(this.getBase()).origin) throw Object.assign(new Error('Invalid API destination'), { code: 'invalid' });
     for (const [k, v] of Object.entries(query || {})) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
     const h = { Accept: 'application/json', ...headers };
     if (rawBody !== undefined) h['Content-Type'] = contentType || 'application/octet-stream';
@@ -27,7 +28,7 @@ class ApiClient {
     try {
       res = await this.fetch(url, { method, headers: h, body: rawBody !== undefined ? rawBody : (body === undefined ? undefined : JSON.stringify(body)) });
     } catch (cause) {
-      const e = new Error('Sem ligação ao servidor da Ivuenu.');
+      const e = new Error('Sem ligação ao servidor da Ivueno.');
       e.code = 'offline'; e.status = 0; e.cause = cause;
       throw e;
     }
@@ -77,8 +78,10 @@ class ApiClient {
 
   // --- account ---------------------------------------------------------------------------------
 
-  async register({ email, password, name, locale = 'pt', timezone = 'Africa/Luanda' }) {
-    await this._send('POST', '/v1/auth/register', { auth: false, body: { email, password, name, locale, timezone } });
+  async register({ email, password, name, locale = 'pt', timezone = 'Africa/Luanda', referralCode }) {
+    const body = { email, password, name, locale, timezone };
+    if (referralCode) body.referral_code = String(referralCode).slice(0, 40);        // an invite code typed on the sign-up screen
+    await this._send('POST', '/v1/auth/register', { auth: false, body });
     return this.login({ email, password });
   }
 
@@ -88,9 +91,18 @@ class ApiClient {
     return this.me();
   }
 
+  /** Sign in (or create the account) with the ID token Google gave the app; the server checks it. */
+  async googleLogin(idToken) {
+    const tok = await this._send('POST', '/v1/auth/google', { auth: false, body: { id_token: idToken, device: this.deviceName } });
+    this.secure.set('tokens', tok);
+    return this.me();
+  }
+
   async logout() {
     const tok = this.tokens();
-    try { if (tok) await this._send('POST', '/v1/auth/logout', { body: { refresh_token: tok.refresh_token } }); } catch { /* signing out locally is enough */ }
+    // Tell the server so the session ends there too, but never let a slow or unreachable server keep the person signed in here.
+    const wait = new Promise((resolve) => { const t = setTimeout(resolve, 4000); if (t.unref) t.unref(); });
+    try { if (tok) await Promise.race([this._send('POST', '/v1/auth/logout', { body: { refresh_token: tok.refresh_token } }), wait]); } catch { /* signing out locally is enough */ }
     this.secure.set('tokens', null);
   }
 
@@ -113,6 +125,12 @@ class ApiClient {
     await this.request('DELETE', '/v1/me');
     this.secure.set('tokens', null);
   }
+
+  // --- invite friends --------------------------------------------------------------------------
+
+  referralMe() { return this.request('GET', '/v1/referrals/me'); }
+  referralCheck(code) { return this.request('GET', '/v1/referrals/check', { auth: false, query: { code } }); }      // asked on the sign-up screen: no account yet
+  referralApply(code) { return this.request('POST', '/v1/referrals/apply', { body: { code } }); }
 
   // --- plans and licence -----------------------------------------------------------------------
 
@@ -143,8 +161,13 @@ class ApiClient {
   // --- cloud tier: transcription and stronger notes; the server keeps nothing -----------------
 
   /** `quality: 'best'` asks for the accurate model (a whole meeting, after it ended); `preview: true` marks a live piece whose meeting gets that accurate pass (not counted against the minutes). */
-  cloudTranscribe(buffer, mime, seconds, language, prompt, { quality, preview } = {}) {
-    return this.request('POST', '/v1/cloud/transcribe', { rawBody: buffer, contentType: mime, query: { language, prompt, ...(quality === 'best' ? { quality } : {}), ...(preview ? { preview: 'true' } : {}) }, headers: { 'X-Audio-Seconds': String(seconds.toFixed(2)) } });
+  async cloudTranscribe(buffer, mime, seconds, language, prompt, { quality, preview } = {}) {
+    try {
+      return await this.request('POST', '/v1/cloud/transcribe', { rawBody: buffer, contentType: mime, query: { language, prompt, ...(quality === 'best' ? { quality } : {}), ...(preview ? { preview: 'true' } : {}) }, headers: { 'X-Audio-Seconds': String(seconds.toFixed(2)) } });
+    } catch (err) {
+      console.warn('[transcribe]', err.status, err.code, err.message, JSON.stringify(err.details), `| ${mime} ${buffer.length} bytes, ${seconds.toFixed(2)} s, language=${language}, prompt ${prompt ? prompt.length : 0} chars`);
+      throw err;
+    }
   }
   cloudUsage() { return this.request('GET', '/v1/cloud/usage'); }
   cloudNotes(body) { return this.request('POST', '/v1/cloud/notes', { body }); }
@@ -174,6 +197,7 @@ class ApiClient {
     return refresh ? this.request('POST', `${base}/refresh`) : this.request('GET', base);
   }
   cancelAttempt(intentId, attemptId) { return this.request('POST', `/v1/billing/intents/${encodeURIComponent(intentId)}/attempts/${encodeURIComponent(attemptId)}/cancel`); }
+  reportPaymentPaid(intentId, attemptId) { return this.request('POST', `/v1/billing/intents/${encodeURIComponent(intentId)}/attempts/${encodeURIComponent(attemptId)}/report-paid`); }
 }
 
 module.exports = { ApiClient };

@@ -4,6 +4,8 @@ import { call } from '../lib/bridge.js';
 import { friendly } from '../lib/errors.mjs';
 import { useT } from '../lib/i18n.js';
 import { useApp } from '../lib/app-context.js';
+import spokenLanguages from '../../shared/spoken-languages.json';
+import LanguageDropdown from './LanguageDropdown.jsx';
 
 /**
  * Draft a follow-up email from the meeting's notes. The AI (or, without one, the notes themselves) writes a first version; the person edits
@@ -60,7 +62,8 @@ export default function EmailDialog({ meetingId, onClose }) {
       <div className="dialog-body col" style={{ gap: 14 }}>
         <div className="row wrap" style={{ gap: 16 }}>
           <Seg label={t('Tom')} value={tone} onChange={setTone} options={[{ id: 'formal', label: t('Formal') }, { id: 'friendly', label: t('Amigável') }, { id: 'direct', label: t('Direto') }]} />
-          <Seg label={t('Idioma do email')} value={language} onChange={setLanguage} options={[{ id: 'auto', label: t('Automático') }, { id: 'pt', label: 'Português' }, { id: 'en', label: 'English' }]} />
+          <LanguageDropdown label={t('Idioma do email')} value={language} onChange={setLanguage}
+            options={[{ id: 'auto', label: t('Automático') }, ...spokenLanguages]} />
           <Switch checked={includeTasks} onChange={setIncludeTasks} label={t('Incluir as tarefas')} />
         </div>
         {state.error && <Banner tone="warn" role="alert">{state.error}</Banner>}
@@ -76,7 +79,7 @@ export default function EmailDialog({ meetingId, onClose }) {
             ? <div className="row" style={{ gap: 10, minHeight: 120 }} role="status"><span className="spinner" aria-hidden="true" /><span>{t('A escrever…')}</span></div>
             : <textarea id="em-body" className="input" rows={13} style={{ height: 'auto', padding: 12, lineHeight: '22px', resize: 'vertical' }} value={body} onChange={(e) => { setBody(e.target.value); setEdited(true); }} />}
         </Field>
-        {how && <span className="muted" style={{ fontSize: 12 }}>{how} {t('Revê antes de enviar. A Ivuenu não envia nada: abre o email no teu programa de email.')}</span>}
+        {how && <span className="muted" style={{ fontSize: 12 }}>{how} {t('Revê antes de enviar. A Ivueno não envia nada: abre o email no teu programa de email.')}</span>}
         <div className="row wrap" style={{ justifyContent: 'flex-end' }}>
           <Button onClick={() => generate(true)} disabled={!!state.busy}>{t('Escrever de novo')}</Button>
           <Button icon="copy" onClick={copy} disabled={!body}>{t('Copiar')}</Button>
