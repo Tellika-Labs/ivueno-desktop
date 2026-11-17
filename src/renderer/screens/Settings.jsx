@@ -14,7 +14,7 @@ import LanguageDropdown from '../components/LanguageDropdown.jsx';
 import Dropdown from '../components/Dropdown.jsx';
 import VerifyEmail from './VerifyEmail.jsx';
 
-const TABS = [['perfil', 'Perfil'], ['disp', 'Dispositivos'], ['sync', 'Sincronização'], ['grav', 'Gravação'], ['dit', 'Ditado'], ['cal', 'Calendário'], ['rec', 'Receitas'], ['priv', 'Privacidade'], ['org', 'Organização'], ['plano', 'Plano e uso']];
+const TABS = [['perfil', 'Perfil'], ['disp', 'Dispositivos'], ['sync', 'Sincronização'], ['grav', 'Gravação'], ['dit', 'Ditado'], ['cal', 'Calendário'], ['rec', 'Receitas'], ['priv', 'Privacidade'], ['org', 'Organização']];
 
 const PAID_TABS = ['sync', 'org'];      // not shown at all on the free plan
 
@@ -49,7 +49,6 @@ export default function Settings() {
           {tab === 'sync' && <><SyncCard /><PhoneCard /></>}
           {tab === 'priv' && <Privacy />}
           {tab === 'org' && <OrgSection />}
-          {tab === 'plano' && <><PlanUsage /><ReferralCard /></>}
         </div>
       </div>
     </div>
@@ -72,7 +71,7 @@ function HotkeyField({ label, hint, value, onChange, ok }) {
   return (
     <div className="list-row">
       <span className="col"><strong>{label}</strong><span className="muted" style={{ fontSize: 12 }}>{hint}</span>
-        {ok === false && <span style={{ fontSize: 12, color: 'var(--error)' }}>{t("O Windows não deixou usar este atalho: outra aplicação já o usa. Escolhe outro.")}</span>}</span>
+        {ok === false && <span style={{ fontSize: 12, color: 'var(--error)' }}>{t("O sistema não deixou usar este atalho: outra aplicação já o usa. Escolhe outro.")}</span>}</span>
       <button type="button" className="btn mono" aria-label={`${label}: ${value}. Clica e carrega nas teclas novas`}
         onClick={() => setCapturing(true)} onBlur={() => setCapturing(false)}
         onKeyDown={(e) => {
@@ -133,7 +132,7 @@ function Profile() {
         </Field>
         <Field label={t('set.theme')} htmlFor="st-theme">
           <Dropdown id="st-theme" label={t('set.theme')} icon="sliders" value={settings.theme} onChange={theme => patchSettings({ theme })}
-            options={[{ id: 'system', label: t('Como o Windows') }, { id: 'light', label: t('Claro') }, { id: 'dark', label: t('Escuro') }]} />
+            options={[{ id: 'system', label: t('Como o sistema') }, { id: 'light', label: t('Claro') }, { id: 'dark', label: t('Escuro') }]} />
         </Field>
       </div>
       <div className="row wrap" style={{ justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--border)' }}>
@@ -198,7 +197,7 @@ function Recording() {
       <div className="grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: 16 }}>
         <Field label={t("Microfone")} htmlFor="st-mic">
           <Dropdown id="st-mic" label={t('Microfone')} icon="mic" value={settings.micId} onChange={micId => patchSettings({ micId })}
-            options={[{ id: '', label: t('Predefinido do Windows') }, ...mics.map(m => ({ id: m.id, label: m.label }))]} />
+            options={[{ id: '', label: t('Predefinido do sistema') }, ...mics.map(m => ({ id: m.id, label: m.label }))]} />
         </Field>
         <Field label={t("Idioma falado")} htmlFor="st-sl">
           <LanguageDropdown id="st-sl" label={t('Idioma falado')} value={settings.language}

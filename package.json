@@ -11,7 +11,8 @@
     "start": "electron .",
     "test": "node --test \"test/*.test.js\" \"test/*.test.mjs\"",
     "dist": "vite build && electron-builder --win nsis",
-    "dist:mac": "vite build && electron-builder --mac"
+    "dist:mac": "vite build && electron-builder --mac",
+    "icons:mac": "electron scripts/render-mac-icons.js"
   },
   "dependencies": {
     "@fontsource/atkinson-hyperlegible-mono": "^5.0.0",

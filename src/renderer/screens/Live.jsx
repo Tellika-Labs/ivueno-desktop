@@ -143,7 +143,7 @@ export default function Live() {
           <Banner tone="warn" action={<Button size="sm" onClick={() => nav('settings', { section: 'grav' })}>{t("Escolher")}</Button>}>
             {audioErrors.includes('mic') ? t('Microfone não encontrado. Liga o auricular ou escolhe outro.')
               : audioErrors.includes('system') ? t('Não foi possível captar o som do computador. Só estamos a ouvir o teu microfone.')
-                : audioErrors.includes('system_silent') ? t('Não estamos a ouvir o som da chamada. Confirma que a chamada toca no dispositivo de saída do Windows (colunas ou auscultadores). Se estão todos na sala, escolhe “Na mesma sala” ao começar.')
+                : audioErrors.includes('system_silent') ? t('Não estamos a ouvir o som da chamada. Confirma que a chamada toca no dispositivo de saída do sistema (colunas ou auscultadores). Se estão todos na sala, escolhe “Na mesma sala” ao começar.')
                   : t('Sem som há mais de 30 segundos. Verifica o microfone.')}
           </Banner>
         </div>

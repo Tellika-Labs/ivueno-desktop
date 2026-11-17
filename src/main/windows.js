@@ -55,14 +55,19 @@ function createMain({ onClose } = {}) {
 }
 
 // The recording island: a small always-on-top pill, excluded from screen sharing, that never takes keyboard focus.
-// Each window is its pill plus room on the sides (24 px) and below (32 px) for the shadow: a transparent window clips whatever is painted outside it.
-const SIZES = { collapsed: { w: 396, h: 82 }, expanded: { w: 516, h: 268 }, prompt: { w: 476, h: 228 } };
+// The island's window never changes size: it is always big enough for the opened island (plus room on the sides, 24 px,
+// and below, 32 px, for the shadow). Resizing a transparent window flickers (a frame of the old picture at the new size),
+// so the pill and the opened island change shape inside it instead, and the empty, transparent part lets the mouse
+// through to whatever is underneath (setInteractive, driven by the page as the pointer goes over the island or leaves it).
+const SIZES = { collapsed: { w: 516, h: 268 }, expanded: { w: 516, h: 268 }, prompt: { w: 516, h: 268 } };
 
 function createIsland({ saved, onMoved }) {
-  const s = SIZES.collapsed;
+  const s = SIZES.expanded;
   const win = new BrowserWindow({
     width: s.w, height: s.h, frame: false, transparent: true, resizable: false, movable: true, minimizable: false, maximizable: false,
     skipTaskbar: true, focusable: false, show: false, hasShadow: false, alwaysOnTop: true, title: 'Ivueno · a gravar',
+    // macOS: a non-activating panel, so typing a quick note in it does not bring the main window or the app to the front.
+    ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
     webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
@@ -72,12 +77,22 @@ function createIsland({ saved, onMoved }) {
   win.mode = 'collapsed';
   win.place = (mode) => {
     win.mode = mode;
-    const size = SIZES[mode];
+    const size = SIZES[mode] || SIZES.expanded;
     const area = screen.getPrimaryDisplay().workArea;
     const cx = saved && saved.cx != null ? saved.cx : area.x + area.width / 2;
     const y = saved && saved.y != null ? saved.y : area.y;
-    win.setBounds({ x: Math.round(cx - size.w / 2), y: Math.round(y), width: size.w, height: size.h });
+    const b = { x: Math.round(cx - size.w / 2), y: Math.round(y), width: size.w, height: size.h };
+    const now = win.getBounds();
+    if (now.x !== b.x || now.y !== b.y || now.width !== b.width || now.height !== b.height) win.setBounds(b);
   };
+  // Only the island catches the mouse; the rest of the window lets clicks through (forward: hover still reaches the page).
+  win.interactive = false;
+  win.setInteractive = (on) => {
+    if (win.isDestroyed() || win.interactive === !!on) return;
+    win.interactive = !!on;
+    win.setIgnoreMouseEvents(!on, { forward: true });
+  };
+  win.setIgnoreMouseEvents(true, { forward: true });
   win.on('moved', () => {
     const b = win.getBounds();
     saved = { cx: b.x + b.width / 2, y: b.y };

@@ -135,10 +135,31 @@ export default function App() {
 
   const nav = useCallback((name, params = {}) => setRoute({ name, ...params }), []);
   const openStart = useCallback((prefill = {}) => setStart(prefill), []);
+  // The menu-bar icon: "Nova reunião…" opens the start dialog here; a meeting started from it opens the live screen (or the plans when the limit is reached).
+  useEffect(() => on('tray:new-meeting', () => setStart({})), []);
+  // Another account signed in: the app restarts on that account's data in a moment. Cover the screens of the previous one meanwhile.
+  // The main process then reloads this page on the new account with #account: the same screen stays until it has loaded.
+  const [switching, setSwitching] = useState(() => { try { return window.location.hash === '#account'; } catch { return false; } });
+  useEffect(() => on('account:switching', () => setSwitching(true)), []);
+  useEffect(() => on('account:ready', () => { window.history.replaceState(null, '', '#account'); window.location.reload(); }), []);
+  useEffect(() => {
+    if (boot.loading || window.location.hash !== '#account') return undefined;
+    const done = setTimeout(() => {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      setSwitching(false);
+    }, 350);                                                  // long enough to read, not to wait for
+    return () => clearTimeout(done);
+  }, [boot.loading]);
+  useEffect(() => on('navigate', (r) => { if (r && ['live', 'plans', 'home'].includes(r.name)) { setStart(null); setRoute({ name: r.name }); } }), []);
   const logout = useCallback(async () => {
     try { await call('auth:logout'); await refreshAuth(); setRoute({ name: 'home' }); } catch (e) { toast(friendly(e)); }
   }, [refreshAuth, toast]);
 
+  if (switching) {
+    return <Frame><div className="center-page"><div className="col" role="status" style={{ alignItems: 'center', gap: 14 }}>
+      <span className="spinner" aria-hidden="true" /><strong style={{ fontSize: 15 }}>{t('A abrir a tua conta…')}</strong>
+    </div></div></Frame>;
+  }
   if (boot.failed) return <Frame><div className="center-page"><Banner tone="error" role="alert">{t("Não foi possível iniciar a Ivueno. Fecha e abre outra vez.")}</Banner></div></Frame>;
   if (boot.loading || !settings) {
     return <Frame><div className="center-page"><div style={{ width: 320, display: 'flex', flexDirection: 'column', gap: 12 }}><Skeleton h={20} w={120} /><Skeleton /><Skeleton w="70%" /></div></div></Frame>;

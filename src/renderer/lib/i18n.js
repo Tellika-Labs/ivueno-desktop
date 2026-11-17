@@ -35,7 +35,7 @@ const pt = {
   'fin.storage': 'A preparar o armazenamento local', 'fin.prefs': 'A guardar as tuas preferências', 'fin.engine': 'A verificar o serviço de notas',
   'fin.done': 'Tudo configurado.', 'fin.demo': 'Motor de demonstração: a conversa é simulada e as notas só citam essa conversa. O motor de IA local chega numa versão seguinte.',
 
-  'mic.title': 'Microfone', 'mic.default': 'Predefinido do Windows', 'mic.say': 'Diz alguma coisa…', 'mic.level': 'Nível do microfone', 'mic.heard': 'Ouvimos-te bem.',
+  'mic.title': 'Microfone', 'mic.default': 'Predefinido do sistema', 'mic.say': 'Diz alguma coisa…', 'mic.level': 'Nível do microfone', 'mic.heard': 'Ouvimos-te bem.',
 
   'ready.title': 'Tudo pronto.', 'ready.body': 'Podes começar a tua primeira reunião quando quiseres. Lembra-te: avisa sempre os participantes que estão a ser gravados.', 'ready.go': 'Começar',
 
@@ -88,7 +88,7 @@ const en = {
   'fin.storage': 'Preparing local storage', 'fin.prefs': 'Saving your preferences', 'fin.engine': 'Checking the notes service',
   'fin.done': 'All set.', 'fin.demo': 'Demonstration engine: the conversation is simulated and notes only quote it. The local AI engine arrives in a later version.',
 
-  'mic.title': 'Microphone', 'mic.default': 'Windows default', 'mic.say': 'Say something…', 'mic.level': 'Microphone level', 'mic.heard': 'We can hear you.',
+  'mic.title': 'Microphone', 'mic.default': 'System default', 'mic.say': 'Say something…', 'mic.level': 'Microphone level', 'mic.heard': 'We can hear you.',
 
   'ready.title': "You're all set.", 'ready.body': 'You can start your first meeting whenever you like. Remember: always tell participants they are being recorded.', 'ready.go': 'Start',
 

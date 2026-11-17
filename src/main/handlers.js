@@ -186,7 +186,7 @@ function createHandlers(ctx) {
           : { id: 'disk', state: 'warn', badge: en ? 'Careful' : 'Atenção', title: en ? 'Low disk space' : 'Pouco espaço em disco',
             text: en ? `${gb(free)} GB free. Free some space before long recordings.` : `${gb(free)} GB livres. Liberta espaço antes de gravações longas.` },
         { id: 'mic', state: 'todo', badge: '', title: en ? 'Microphone access' : 'Acesso ao microfone',
-          text: en ? 'Windows will ask for permission.' : 'O Windows vai pedir autorização.' },
+          text: en ? 'The system will ask for permission.' : 'O sistema vai pedir autorização.' },
       ];
       if (arg?.lang === 'fr') {
         const gpuCheck = checks[0];
@@ -195,7 +195,7 @@ function createHandlers(ctx) {
         gpuCheck.text = 'La transcription s’exécute dans le cloud. Une carte graphique dédiée n’est pas nécessaire.';
         checks[1] = { ...checks[1], badge: free > 5e9 ? 'OK' : 'Attention', title: free > 5e9 ? 'Espace disque' : 'Espace disque insuffisant',
           text: free > 5e9 ? `${gb(free)} Go libres. Prévoyez environ 50 Mo par heure de réunion.` : `${gb(free)} Go libres. Libérez de l’espace avant une longue réunion.` };
-        checks[2] = { ...checks[2], title: 'Accès au microphone', text: 'Windows vous demandera l’autorisation.' };
+        checks[2] = { ...checks[2], title: 'Accès au microphone', text: 'Le système vous demandera l’autorisation.' };
       }
       return checks;
     },

@@ -7,3 +7,4 @@ project-design/
 scripts/.french-source.json
 .payment-smoke-*/
 .env.local.bak*
+.env

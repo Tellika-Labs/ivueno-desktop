@@ -60,14 +60,21 @@ if (fs.existsSync(legacyFile)) {
   const legacyOwner = new Store(legacyFile, { cipher: localCipher }).data.accountId || (!activeId && secure.get('user')?.id) || null;
   if (legacyOwner && accounts.migrateLegacy(userData, legacyOwner) && !activeId) { accounts.setActive(userData, legacyOwner); activeId = legacyOwner; }
 }
-const dataDir = activeId ? accounts.accountDir(userData, activeId) : userData;
-const store = new Store(path.join(dataDir, accounts.DATA_FILE), { cipher: localCipher });
-// The folder is the identity of its data: it always belongs to the account it is named after. Without a folder yet (nobody signed in), the signed-in account claims it.
-const folderOwner = activeId || secure.get('user')?.id;
-if (!store.data.accountId && folderOwner) {
-  store.data.accountId = folderOwner;
-  store.flush();
+// The open account's data. Switching accounts (bindAccount) closes these and opens the other account's, without a restart:
+// everything that belongs to one account is built by openStore() + openAccount() below and is replaced as a whole.
+let dataDir = null;
+let store = null;
+function openStore() {
+  dataDir = activeId ? accounts.accountDir(userData, activeId) : userData;
+  store = new Store(path.join(dataDir, accounts.DATA_FILE), { cipher: localCipher });
+  // The folder is the identity of its data: it always belongs to the account it is named after. Without a folder yet (nobody signed in), the signed-in account claims it.
+  const folderOwner = activeId || secure.get('user')?.id;
+  if (!store.data.accountId && folderOwner) {
+    store.data.accountId = folderOwner;
+    store.flush();
+  }
 }
+openStore();
 const apiBase = () => {
   let base = process.env.IVUENU_API_BASE || store.data.settings.apiBase;
   // An installed app always talks to the production server built into it: an address saved by an older version (an earlier host, or a local test
@@ -88,7 +95,10 @@ const broadcast = (channel, payload) => {
 };
 
 let syncRef = null;      // set below; a change to meetings asks it to sync soon
-const repo = new Repo(store, (kind, id) => { broadcast('data:changed', { kind, id }); if (kind === 'meetings' && syncRef) syncRef.schedule(); });
+// Built per account by openAccount(): the meetings, the recording session, kept audio, imports, the accurate pass, sync, pairing, telemetry, and the request handlers.
+let repo = null, session = null, importer = null, archive = null, refiner = null, telemetry = null, sync = null, pairing = null, handlers = null;
+let accountGen = 0;      // bumped when an account closes: anything its objects still emit afterwards is dropped
+let purgeTimer = null;
 // Everything that needs AI runs in the cloud (the Ivueno server, which uses Groq): see engine/router.js. The demonstration engine only supplies the plain,
 // rule-based text writers as a fallback (and the scripted conversation when IVUENU_ENGINE=demo, for development).
 const demoEngine = createEngine('demo', { stepMs: Number(process.env.IVUENU_DEMO_STEP_MS) || 6000 });
@@ -100,7 +110,6 @@ const cloudEngine = new CloudEngine({
   getSettings: () => store.data.settings, fallback: demoEngine,
 });
 const engine = new EngineRouter({ cloud: cloudEngine, demo: demoEngine, demoSpeech: process.env.IVUENU_ENGINE === 'demo', getSettings: () => store.data.settings, hasFeature: (f) => ((licenceRef && licenceRef.status().features) || []).includes(f) });
-const session = new Session({ repo, engine });
 // Telling the voices of an imported recording apart needs one small model file (40 MB). The installer carries it (extraResources -> <install folder>/resources/models),
 // so normally nothing is downloaded; the download in models.js stays as the fallback (e.g. a build made without it). See models.js and voices.js.
 const bundledModels = app.isPackaged ? require('path').join(process.resourcesPath, 'models') : require('path').join(__dirname, '..', '..', 'assets', 'models');
@@ -113,10 +122,7 @@ const voiceModels = new SpeechModelManager({
 });
 voiceModels.on('progress', (st) => broadcast('voices:progress', st));
 const voices = { available: () => !!voiceModelPath(), modelPath: voiceModelPath, identify: voicesLib.identify };
-const importer = new AudioImporter({ repo, engine, voices, glossary: () => store.data.settings.glossary, tmpDir: require('os').tmpdir(), notes: (id) => session.generateNotes(id) });
 
-const archive = new AudioArchive({ dir: require('path').join(dataDir, 'audio'), cipher: localCipher });
-archive.migrate();
 // The accurate pass over a meeting's kept audio. The window decodes audio (Chromium has the decoders), so the refiner asks it for the samples of a block and waits.
 const pendingDecodes = new Map();
 function decodeInWindow(bytes) {
@@ -135,36 +141,9 @@ function decodeReply(reqId, pcm, error) {
   if (error || !pcm) pending.reject(Object.assign(new Error('decode failed'), { code: 'decode_failed' }));
   else pending.resolve(Buffer.from(pcm.buffer ? new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength) : new Uint8Array(pcm)));
 }
-const refiner = new Refiner({ repo, engine, archive, voices, notes: (id) => session.generateNotes(id), decode: decodeInWindow, policy: () => store.data.settings.audioKeep, glossary: () => store.data.settings.glossary });
-refiner.on('progress', (p) => broadcast('refine:progress', p));
-
-// When a meeting ends with its audio kept: decide until when, and (unless the person turned it off) improve the transcript from that audio.
-session.on('finished', (id) => {
-  const m = repo.getMeeting(id);
-  if (!m || !m.audio || !m.audio.keep) return;
-  if (!archive.has(id)) { repo.updateMeeting(id, { audio: null }); return; }
-  repo.updateMeeting(id, { audio: { ...m.audio, keepUntil: retentionUntil(store.data.settings.audioKeep, Date.now()) } });
-  const mode = m.audio.mode || store.data.settings.refineMode;
-  if (mode === 'voices' || mode === 'text') refiner.run(id, { mode }).catch(() => {});
-});
-// Audio past its date is deleted when the app starts and every few hours after.
-for (const m of repo.d.meetings) if (m.refine && m.refine.state === 'running') repo.updateMeeting(m.id, { refine: { ...m.refine, state: 'failed', error: 'interrupted' } });      // the app closed in the middle of it
-const purgeAudio = () => { try { purgeExpired({ repo, archive }); } catch (e) { console.error('[audio] purge failed:', e && e.message); } };
-purgeAudio();
-setInterval(purgeAudio, 6 * 60 * 60 * 1000).unref();
-importer.on('progress', (p) => broadcast('import:progress', p));
-repo.recoverImports();
 const api = new ApiClient({ getBase: apiBase, secure, deviceName: `Ivueno desktop em ${require('os').hostname()}` });
 apiRef = api;
-// How the app is used (never what is said in it): see main/telemetry.js. IVUENU_TELEMETRY=off switches it off for a run.
-const telemetry = new Telemetry({
-  api, store, secure, version: app.getVersion(), platform: process.platform, packaged: app.isPackaged,
-  getLocale: () => store.data.settings.appLanguage, enabled: process.env.IVUENU_TELEMETRY !== 'off',
-});
-process.on('uncaughtExceptionMonitor', (err) => telemetry.error('main', err));      // watches only: Electron still handles the crash as before
-const sync = new SyncManager({ repo, store, api, secure, emit: () => broadcast('data:changed', { kind: 'sync' }) });
-syncRef = sync;
-const pairing = new Pairing({ api, secure, getBase: apiBase });
+process.on('uncaughtExceptionMonitor', (err) => { if (telemetry) telemetry.error('main', err); });      // watches only: Electron still handles the crash as before
 // Public keys that may sign licences, shipped inside the app. Empty in development (then the key is pinned on first
 // sign-in). In a release build this list must hold the production key(s): see backend/scripts/make_licence_key.py.
 function readKeyList(name) {
@@ -244,25 +223,22 @@ const services = {
       return;
     }
     // Another account signs in on this computer: park the old account's own secrets in its folder, bring this account's back,
-    // point the app at this account's folder and restart so everything opens on it. The old account's data stays untouched.
+    // and point the app at this account's folder. The old account's data stays untouched.
     store.flush();
     try { accounts.stashKeys(secure, new SecureStore(path.join(accounts.accountDir(userData, owner), 'ivuenu-secure.bin'), safeStorage)); } catch { /* nothing to park */ }
     try { accounts.restoreKeys(secure, new SecureStore(path.join(accounts.accountDir(userData, id), 'ivuenu-secure.bin'), safeStorage)); } catch { /* a new account has none */ }
     accounts.setActive(userData, id);
-    setTimeout(() => {
-      if (app.isPackaged) app.relaunch();          // in development the dev script owns the window: start `npm run dev` again
-      app.exit(0);
-    }, 700);
+    activeId = id;
+    // The page shows "A abrir a tua conta…" at once (so the previous account's screens are never seen with this account
+    // signed in). Once the sign-in call has answered, the app closes the previous account's data, opens this one's and
+    // reloads the page behind the same screen. No restart.
+    broadcast('account:switching');
+    setTimeout(switchAccount, 0);
   },
   setIsland: () => syncIsland(session.snapshot()),
 };
 
 let flushWaiter = null;
-session.beforeStop = () => new Promise((resolve) => {
-  const timer = setTimeout(() => { flushWaiter = null; resolve(); }, 4000);
-  flushWaiter = () => { clearTimeout(timer); flushWaiter = null; resolve(); };
-  broadcast('audio:flush');
-});
 services.audioFlushed = () => { if (flushWaiter) flushWaiter(); };
 
 const dictation = new Dictation({ engine, getSettings: () => store.data.settings, insertText: (t) => services.insertText(t) });
@@ -292,7 +268,106 @@ app.on('before-quit', () => mediaDecoder.cancel());
 // Updates: only in an installed build (a development run has nothing to update). See updater.js and docs/RELEASING.md.
 const updater = new Updater({ autoUpdater: app.isPackaged ? require('electron-updater').autoUpdater : null, emit: broadcast, enabled: app.isPackaged });
 updater.start();
-const handlers = createHandlers({ repo, session, engine, api, licence, secure, services, dictation, usage, sync, pairing, archive, refiner, decodeReply, importer, mediaDecoder, voices, voiceModels, updater, version: app.getVersion() });
+
+/** Builds everything that belongs to the open account (store must be open). Each object here only ever sees this account's data. */
+function openAccount() {
+  const gen = ++accountGen;
+  const live = () => gen === accountGen;
+  const emit = (channel, payload) => { if (live()) broadcast(channel, payload); };
+  const st = store;
+  const r = new Repo(st, (kind, id) => { emit('data:changed', { kind, id }); if (live() && kind === 'meetings' && syncRef) syncRef.schedule(); });
+  const s = new Session({ repo: r, engine });
+  const imp = new AudioImporter({ repo: r, engine, voices, glossary: () => st.data.settings.glossary, tmpDir: require('os').tmpdir(), notes: (id) => s.generateNotes(id) });
+  const arc = new AudioArchive({ dir: path.join(dataDir, 'audio'), cipher: localCipher });
+  arc.migrate();
+  const ref = new Refiner({ repo: r, engine, archive: arc, voices, notes: (id) => s.generateNotes(id), decode: decodeInWindow, policy: () => st.data.settings.audioKeep, glossary: () => st.data.settings.glossary });
+  ref.on('progress', (p) => emit('refine:progress', p));
+
+  // When a meeting ends with its audio kept: decide until when, and (unless the person turned it off) improve the transcript from that audio.
+  s.on('finished', (id) => {
+    const m = r.getMeeting(id);
+    if (!m || !m.audio || !m.audio.keep) return;
+    if (!arc.has(id)) { r.updateMeeting(id, { audio: null }); return; }
+    r.updateMeeting(id, { audio: { ...m.audio, keepUntil: retentionUntil(st.data.settings.audioKeep, Date.now()) } });
+    const mode = m.audio.mode || st.data.settings.refineMode;
+    if (mode === 'voices' || mode === 'text') ref.run(id, { mode }).catch(() => {});
+  });
+  // Audio past its date is deleted when the account opens and every few hours after.
+  for (const m of r.d.meetings) if (m.refine && m.refine.state === 'running') r.updateMeeting(m.id, { refine: { ...m.refine, state: 'failed', error: 'interrupted' } });      // the app closed in the middle of it
+  const purgeAudio = () => { try { purgeExpired({ repo: r, archive: arc }); } catch (e) { console.error('[audio] purge failed:', e && e.message); } };
+  purgeAudio();
+  clearInterval(purgeTimer);
+  purgeTimer = setInterval(purgeAudio, 6 * 60 * 60 * 1000);
+  purgeTimer.unref();
+  imp.on('progress', (p) => emit('import:progress', p));
+  r.recoverImports();
+
+  // How the app is used (never what is said in it): see main/telemetry.js. IVUENU_TELEMETRY=off switches it off for a run.
+  const tel = new Telemetry({
+    api, store: st, secure, version: app.getVersion(), platform: process.platform, packaged: app.isPackaged,
+    getLocale: () => st.data.settings.appLanguage, enabled: process.env.IVUENU_TELEMETRY !== 'off',
+  });
+  const syn = new SyncManager({ repo: r, store: st, api, secure, emit: () => emit('data:changed', { kind: 'sync' }) });
+  const pair = new Pairing({ api, secure, getBase: apiBase });
+
+  s.beforeStop = () => new Promise((resolve) => {
+    const timer = setTimeout(() => { flushWaiter = null; resolve(); }, 4000);
+    flushWaiter = () => { clearTimeout(timer); flushWaiter = null; resolve(); };
+    emit('audio:flush');
+  });
+  s.on('state', (snap) => {
+    if (!live()) return;
+    broadcast('rec:state', snap);
+    syncIsland(snap);
+    const key = `${snap.phase}|${Math.floor(snap.elapsedMs / 1000)}`;
+    if (key !== lastTrayKey) { lastTrayKey = key; buildTray(snap); }
+  });
+  s.on('segment', (payload) => emit('rec:segment', payload));
+  s.on('levels', (levels) => { if (live() && islandWin && !islandWin.isDestroyed()) islandWin.webContents.send('rec:levels', levels); });
+  s.on('notes-state', (payload) => emit('data:changed', { kind: 'notes', ...payload }));
+  s.on('notes', (id) => emit('data:changed', { kind: 'notes', id }));
+
+  repo = r; session = s; importer = imp; archive = arc; refiner = ref; telemetry = tel; sync = syn; syncRef = syn; pairing = pair;
+  handlers = createHandlers({ repo: r, session: s, engine, api, licence, secure, services, dictation, usage, sync: syn, pairing: pair, archive: arc, refiner: ref, decodeReply, importer: imp, mediaDecoder, voices, voiceModels, updater, version: app.getVersion() });
+}
+
+/** Stops what the open account still has running. Its objects keep pointing at its own folder, so anything already under way finishes there. */
+function closeAccount() {
+  accountGen++;
+  clearInterval(purgeTimer); purgeTimer = null;
+  try { sync.stop(); } catch { /* not started */ }
+  try { telemetry.stop(); } catch { /* not started */ }
+  try { pairing.cancel().catch(() => {}); } catch { /* nothing waiting */ }
+  try { store.flush(); } catch { /* written already */ }
+}
+
+/** Closes the open account and opens the active one (activeId) in place, then reloads the pages on it. */
+function switchAccount() {
+  closeAccount();
+  if (islandWin && !islandWin.isDestroyed()) { islandWin.close(); islandWin = null; }
+  openStore();
+  openAccount();
+  applyHotkeys();
+  buildTray(session.snapshot());
+  services.refreshLanguage();
+  startAccount();
+  // The page reloads itself on the new account and keeps showing "A abrir a tua conta…" until it is ready (App.jsx, #account).
+  // (Loading the same address with only a new #hash from here would not reload it: the browser treats that as a jump within the page.)
+  broadcast('account:ready');
+}
+
+/** What runs once an account is open: its settings take effect and it talks to the server. */
+function startAccount() {
+  nativeTheme.themeSource = store.data.settings.theme;
+  telemetry.start();
+  if (api.signedIn()) usage.flush().catch(() => {});
+  sync.start();
+  if (api.signedIn()) sync.syncNow().catch(() => {});
+  if (api.signedIn()) licence.refresh().then(() => broadcast('licence:changed', licence.status())).catch(() => {});
+}
+
+let lastTrayKey = '';
+openAccount();
 
 // Allowed senders: our own pages only.
 const senderIsApp = (e) => {
@@ -325,6 +400,7 @@ onApp('island:expand', () => setIslandMode('expanded'));
 onApp('island:collapse', () => setIslandMode('collapsed'));
 onApp('island:toggle', () => setIslandMode(islandWin && islandWin.mode === 'expanded' ? 'collapsed' : 'expanded'));
 onApp('island:open-main', () => showMain());
+onApp('island:hover', (event, over) => { if (islandWin && !islandWin.isDestroyed() && event.sender === islandWin.webContents) islandWin.setInteractive(!!over); });
 
 // Window buttons of our own title bar (the window is frameless so it is one rounded surface).
 onApp('win:minimize', (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
@@ -338,8 +414,14 @@ onApp('win:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close
 
 function setIslandMode(mode) {
   if (!islandWin || islandWin.isDestroyed()) return;
+  // The pill never takes the keyboard (dictation types into the app that has it). Opened, it holds the quick-note field,
+  // so it may take the keyboard until it is closed again.
+  const typing = mode === 'expanded';
+  islandWin.setFocusable(typing);
+  // The window keeps its size and place (windows.js); the page turns one island into the other inside it.
   islandWin.place(mode);
   islandWin.webContents.send('island:mode', mode);
+  if (typing) islandWin.focus();
 }
 
 function syncIsland(snap) {
@@ -356,7 +438,15 @@ function syncIsland(snap) {
 
 // --- tray -------------------------------------------------------------------------------------------
 
-function trayImage(recording) { return brand.icon(32, recording); }
+// macOS: a one-colour template image at menu-bar size (18pt, with an @2x file picked automatically), which the system recolours
+// for a light or dark bar. Rendered from assets/tray-template.svg by `npm run icons:mac`. Elsewhere: the colour brand icon.
+function trayImage(recording) {
+  if (process.platform === 'darwin') {
+    const img = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'assets', recording ? 'trayRecordingTemplate.png' : 'trayTemplate.png'));
+    if (!img.isEmpty()) { img.setTemplateImage(true); return img; }
+  }
+  return brand.icon(32, recording);
+}
 
 // Keep the three window buttons readable in both themes.
 function syncOverlay() {
@@ -373,37 +463,74 @@ function buildTray(snap) {
   tray.setImage(trayImage(snap.phase === 'recording'));
   const state = snap.phase === 'paused' ? nativeText('Em pausa', 'Paused', 'En pause') : nativeText('A gravar', 'Recording', 'Enregistrement');
   tray.setToolTip(recording ? `Ivueno · ${state} ${clock(snap.elapsedMs)}` : 'Ivueno');
+  const writing = snap.phase === 'writing';
   tray.setContextMenu(Menu.buildFromTemplate([
-    ...(recording ? [{ label: `${state} · ${clock(snap.elapsedMs)}`, enabled: false },
-      { label: nativeText('Parar a gravação', 'Stop recording', 'Arrêter l’enregistrement'), click: () => session.stop() }] : []),
-    { label: nativeText('Abrir a Ivueno', 'Open Ivueno', 'Ouvrir Ivueno'), click: showMain },
-    { label: nativeText('Mostrar mini gravador', 'Show mini recorder', 'Afficher le mini-enregistreur'), enabled: recording, click: () => setIslandMode('expanded') },
+    ...(recording ? [
+      { label: `${state} · ${clock(snap.elapsedMs)}`, enabled: false },
+      snap.phase === 'paused'
+        ? { label: nativeText('Retomar', 'Resume', 'Reprendre'), click: () => session.resume() }
+        : { label: nativeText('Pausar', 'Pause', 'Mettre en pause'), click: () => session.pause() },
+      { label: nativeText('Parar a gravação', 'Stop recording', 'Arrêter l’enregistrement'), click: () => session.stop() },
+      { label: nativeText('Mostrar mini gravador', 'Show mini recorder', 'Afficher le mini-enregistreur'), click: () => setIslandMode('expanded') },
+    ] : writing ? [
+      { label: nativeText('A escrever as notas…', 'Writing the notes…', 'Rédaction des notes…'), enabled: false },
+    ] : [
+      // The same two answers as the "Nova reunião" dialog: each starts recording and is kept in the consent record.
+      { label: nativeText('Começar a gravar', 'Start recording', 'Commencer l’enregistrement'), submenu: [
+        { label: nativeText('Já avisei os participantes', 'I told the participants', 'J’ai prévenu les participants'), click: () => trayStart('confirmed') },
+        { label: nativeText('Só eu (notas pessoais)', 'Just me (personal notes)', 'Juste moi (notes personnelles)'), click: () => trayStart('solo') },
+      ] },
+      { label: nativeText('Nova reunião…', 'New meeting…', 'Nouvelle réunion…'), click: () => sendToMain('tray:new-meeting') },
+    ]),
     { type: 'separator' },
+    { label: nativeText('Abrir a Ivueno', 'Open Ivueno', 'Ouvrir Ivueno'), click: showMain },
     { label: nativeText('Sair', 'Quit', 'Quitter'), click: quitApp },
   ]));
+}
+
+/** Shows the main window (creating it if it was closed) and sends it one event once its page is ready. */
+function sendToMain(channel, payload) {
+  const fresh = !mainWin || mainWin.isDestroyed();
+  showMain();
+  const wc = mainWin && !mainWin.isDestroyed() ? mainWin.webContents : null;
+  if (!wc) return;
+  if (fresh || wc.isLoading()) wc.once('did-finish-load', () => setTimeout(() => wc.send(channel, payload), 300));
+  else wc.send(channel, payload);
+}
+
+/** Starts a meeting from the menu-bar icon with the saved defaults (place, notes style, language, transcript, hiding). */
+async function trayStart(consent) {
+  if (!store.data.onboarded || !api.signedIn() || secure.get('user')?.id !== store.data.accountId) { showMain(); return; }   // the app asks to sign in / finish setup
+  const s = store.data.settings;
+  const place = s.meetingPlace || 'both';
+  // The main window captures the sound, so it has to exist; it stays where it is if it is already open.
+  if (!mainWin || mainWin.isDestroyed()) openMain();
+  try {
+    await handlers['rec:start']({
+      consent,
+      input: { place, title: '', folderId: null, template: s.template, language: s.language === 'auto' ? null : s.language, translateTo: null, keepTranscript: s.keepTranscript, redact: s.redact, attendees: [], calendarEventId: null },
+    });
+    telemetry.track('feature', { name: 'meeting_start', place, consent, template: s.template, ok: true });
+    sendToMain('navigate', { name: 'live' });
+  } catch (err) {
+    telemetry.track('feature', { name: 'meeting_start', place, consent, template: s.template, ok: false, code: err && err.code });
+    const blocked = err && (err.code === 'limit_reached' || err.code === 'plan_required');
+    if (blocked) { sendToMain('navigate', { name: 'plans' }); return; }
+    showMain();
+    dialog.showMessageBox({ type: 'warning', message: nativeText('Não foi possível começar a gravar.', 'Could not start recording.', 'Impossible de commencer l’enregistrement.'), detail: (err && err.message) || '' });
+  }
 }
 
 function nativeText(pt, en, fr) {
   return ({ pt, en, fr })[store.data.settings.appLanguage] || pt;
 }
 
-let lastTrayKey = '';
-session.on('state', (snap) => {
-  broadcast('rec:state', snap);
-  syncIsland(snap);
-  const key = `${snap.phase}|${Math.floor(snap.elapsedMs / 1000)}`;
-  if (key !== lastTrayKey) { lastTrayKey = key; buildTray(snap); }
-});
 dictation.on('state', (snap) => {
   broadcast('dictation:state', snap);
   syncIsland(session.snapshot());
   if (snap.phase !== 'idle' && islandWin && !islandWin.isDestroyed()) setIslandMode('collapsed');
 });
 onApp('dictation:levels', (event, levels) => { if (islandWin && !islandWin.isDestroyed()) islandWin.webContents.send('rec:levels', levels); });
-session.on('segment', (payload) => broadcast('rec:segment', payload));
-session.on('levels', (levels) => { if (islandWin && !islandWin.isDestroyed()) islandWin.webContents.send('rec:levels', levels); });
-session.on('notes-state', (payload) => broadcast('data:changed', { kind: 'notes', ...payload }));
-session.on('notes', (id) => broadcast('data:changed', { kind: 'notes', id }));
 
 // --- app lifecycle ----------------------------------------------------------------------------------
 
@@ -415,6 +542,7 @@ function showMain() {
 
 function openMain() {
   mainWin = createMain({
+
     onClose: (event) => {
       const busy = session.phase === 'recording' || session.phase === 'paused' || session.phase === 'writing';
       if (!quitting && busy) { event.preventDefault(); mainWin.hide(); }      // keep recording in the background
@@ -456,9 +584,12 @@ return app.whenReady().then(async () => {
     app.quit();
     return;
   }
-  await brand.prewarm();
+  // An unpackaged run is the stock Electron.app, so the Dock would show Electron's icon. A packaged app gets build/icon.png from electron-builder.
+  if (process.platform === 'darwin' && !app.isPackaged && app.dock) {
+    const dockIcon = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'build', 'icon.png'));
+    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
+  }
   telemetry.track('app_open', { signed_in: api.signedIn(), onboarded: !!store.data.onboarded, packaged: app.isPackaged, first_run: !store.data.installId, lang: store.data.settings.appLanguage });
-  telemetry.start();
   nativeTheme.themeSource = store.data.settings.theme;
 
   const ses = electronSession.defaultSession;
@@ -477,13 +608,11 @@ return app.whenReady().then(async () => {
 
   openMain();
   mainWin.once('ready-to-show', syncOverlay);
+  await brand.prewarm();         // the tray icons (not needed by the window, so it opens first)
   buildTray(session.snapshot());
   applyHotkeys();
-  // Try to renew the licence quietly at start (works offline: the stored one keeps working).
-  if (api.signedIn()) usage.flush().catch(() => {});
-  sync.start();
-  if (api.signedIn()) sync.syncNow().catch(() => {});
-  if (api.signedIn()) licence.refresh().then(() => broadcast('licence:changed', licence.status())).catch(() => {});
+  // Settings, telemetry, sync, and a quiet licence renewal (works offline: the stored one keeps working).
+  startAccount();
 });
 }).catch((error) => {
   dialog.showErrorBox('Ivueno', `Não foi possível abrir os dados protegidos: ${error.message}`);

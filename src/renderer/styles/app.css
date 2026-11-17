@@ -415,24 +415,37 @@ li[aria-current="step"] .step-dot { border: 2px solid var(--accent); }
 .cmp tbody th { font-weight: 400; }
 
 /* ---------- island ---------- */
-.island-root { height: 100%; display: flex; justify-content: center; align-items: flex-start; padding: 10px 24px 32px; -webkit-app-region: no-drag; user-select: none; }
-.island { background: #151412; color: #EDE9E3; border: 1px solid rgba(237, 233, 227, .10); box-shadow: 0 5px 16px rgba(0, 0, 0, .42); font-family: 'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
-.island.pill { height: 40px; padding: 0 16px 0 14px; border-radius: 999px; display: flex; align-items: center; gap: 12px; cursor: pointer; width: 100%; }
+.island-root { height: 100%; display: flex; justify-content: center; align-items: flex-start; padding: 10px 24px 32px; -webkit-app-region: no-drag; user-select: none;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .45)); }   /* the shadow follows the island's shape, also while it changes shape */
+.island { background: #151412; color: #EDE9E3; border: 1px solid rgba(237, 233, 227, .10); font-family: 'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+.island.pill { height: 40px; padding: 0 16px 0 14px; border-radius: 999px; display: flex; align-items: center; gap: 12px; cursor: pointer; width: max-content; max-width: 100%; }
+.island.pill .waves { flex: none; width: 132px; }          /* fixed, so the pill is sized by its words, not stretched */
+.island.pill .grow { display: none; }
+/* The pill resizes smoothly to its content (island.jsx Pill). */
+.island.pill { display: block; padding: 0; overflow: hidden; transition: width 320ms cubic-bezier(.4, 0, .2, 1); }
+.island .pill-in { display: flex; align-items: center; gap: 12px; width: max-content; height: 100%; padding: 0 16px 0 14px; }
+@media (prefers-reduced-motion: reduce) { .island.pill { transition: none; } }
 .island.pill button, .island button { -webkit-app-region: no-drag; }
-.island.open { width: 100%; border-radius: 20px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); -webkit-app-region: drag; }
+.island.open { width: 100%; overflow: hidden; border-radius: 20px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-app-region: drag; }
 .island .dot { width: 10px; height: 10px; border-radius: 999px; background: #FF5B4F; flex: none; }
 .island .dot.pulse { animation: ivPulse 2s ease-in-out infinite; }
 .island .dot.sq { border-radius: 3px; background: #A0998F; }
 .island .dot.done { border-radius: 3px; background: #63C3A6; }
 .island .time { font-family: 'Atkinson Hyperlegible Mono', monospace; font-weight: 500; font-variant-numeric: tabular-nums; }
-.island .waves { display: flex; align-items: center; gap: 2px; height: 24px; flex: 1; min-width: 0; }
-.island .waves i { width: 3px; border-radius: 2px; flex: none; display: block; transition: height 100ms linear; }
+/* The bars share the whole width of their row (however wide the island is), spaced evenly once they reach their widest. */
+.island .waves { display: flex; align-items: center; justify-content: space-between; gap: 2px; height: 24px; flex: 1; min-width: 0; }
+.island .waves i { flex: 1 1 0; min-width: 1.5px; max-width: 3px; border-radius: 999px; display: block; opacity: .9; transition: height 140ms ease-out; }
 .island .src { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #B9B2A8; min-width: 64px; }
 .island .tray { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px 12px; align-items: center; padding: 10px 12px; background: #1C1B19; border-radius: 12px; }
 .island .tray span.l { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #B9B2A8; }
 .island input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 10px 14px 11px 13px; border: 1px solid #45413B; background: #1C1B19; color: #EDE9E3; font-size: 13px; }
 .island input:focus { border-color: #63C3A6; outline: 2px solid #63C3A6; outline-offset: 2px; box-shadow: 0 0 0 3px #183229; }
 .island .ib { width: 36px; height: 36px; border-radius: 10px; border: 1px solid #312E2A; background: #1C1B19; display: flex; align-items: center; justify-content: center; color: #EDE9E3; }
+.island input, .island .collapse { -webkit-app-region: no-drag; }
+.island .collapse { width: 28px; height: 28px; flex: none; padding: 0; border: 0; border-radius: 999px; background: transparent; color: #B9B2A8; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+.island .collapse:hover { background: rgba(237, 233, 227, .08); color: #EDE9E3; }
+.island .collapse:active { background: rgba(237, 233, 227, .14); }
+.island .collapse:focus-visible { outline: 2px solid #63C3A6; outline-offset: 2px; }
 .island .stop { height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: #EDE9E3; color: #151412; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .island .warn { color: #F0C25A; font-weight: 600; font-size: 12px; }
 .island .ok-text { color: #8AD8BF; font-size: 12px; font-weight: 600; }
