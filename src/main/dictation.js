@@ -84,12 +84,19 @@ class Dictation extends EventEmitter {
       const text = String(await this.engine.dictate(chunks) || '').trim();
       if (!text) { this._notice('Não percebi o que disseste.'); return; }
       if (this.insertText) {
-        try { await this.insertText(text); } catch { this._notice('Não consegui escrever no outro programa: o texto ficou copiado, cola com Ctrl+V.'); return; }
+        try { await this.insertText(text); } catch (e) {
+          const mac = process.platform === 'darwin';
+          this._notice(e && e.code === 'accessibility'
+            ? 'Para escrever no outro programa, dá acesso à Ivueno em Acessibilidade. O texto ficou copiado: cola com ⌘V.'
+            : mac ? 'Não consegui escrever no outro programa: o texto ficou copiado, cola com ⌘V.'
+              : 'Não consegui escrever no outro programa: o texto ficou copiado, cola com Ctrl+V.');
+          return;
+        }
       }
       this._set('idle');
     } catch (e) {
       const why = {
-        offline: 'Sem ligação à internet: o ditado precisa dela.', plan_required: 'O ditado precisa de um plano com transcrição.',
+        offline: 'Sem ligação à internet: o ditado precisa dela.', email_not_verified: 'Confirma o teu email para usar o ditado: abre a Ivueno.', plan_required: 'O ditado precisa de um plano com transcrição.',
         cloud_minutes_exhausted: 'Os minutos de transcrição deste mês acabaram.', cloud_disabled_by_policy: 'A tua empresa não permite a transcrição na nuvem.',
       };
       this._notice(why[e && e.code] || 'O ditado falhou.');

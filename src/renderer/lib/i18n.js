@@ -23,7 +23,7 @@ const pt = {
 
   'check.title': 'Verificar o computador',
   'check.body': 'A Ivueno transcreve aqui, sem enviar o áudio. Vemos se este computador aguenta e dizemos o que esperar.',
-  'check.checking': 'A verificar…', 'check.giveMic': 'Dar acesso', 'check.micOk': 'Tudo certo.',
+  'check.checking': 'A verificar…', 'check.giveMic': 'Dar acesso', 'check.micOk': 'Tudo certo.', 'check.micDenied': 'O acesso foi recusado. Ativa a Ivueno em Microfone nas definições do sistema e tenta outra vez.', 'check.openSettings': 'Abrir definições', 'check.retry': 'Tentar outra vez',
 
   'data.title': 'Como a Ivueno trata os teus dados',
   'data.local': 'As reuniões ficam no teu computador', 'data.localHint': 'Transcrições, notas e tarefas são guardadas aqui. Podes guardar uma cópia encriptada na tua conta, se quiseres.',
@@ -76,7 +76,7 @@ const en = {
 
   'check.title': 'Check this computer',
   'check.body': 'Ivueno transcribes here, without sending the audio anywhere. We check whether this computer can cope and tell you what to expect.',
-  'check.checking': 'Checking…', 'check.giveMic': 'Allow access', 'check.micOk': 'All good.',
+  'check.checking': 'Checking…', 'check.giveMic': 'Allow access', 'check.micOk': 'All good.', 'check.micDenied': 'Access was refused. Turn Ivueno on under Microphone in the system settings, then try again.', 'check.openSettings': 'Open settings', 'check.retry': 'Try again',
 
   'data.title': 'How Ivueno treats your data',
   'data.local': 'Your meetings stay on your computer', 'data.localHint': 'Transcripts, notes and tasks are stored here. You can keep an encrypted copy in your account if you want.',

@@ -84,9 +84,13 @@ function Welcome({ t, onNext }) {
 function Check({ t, lang, onNext, onBack }) {
   const [items, setItems] = useState(null);
   const [micOk, setMicOk] = useState(false);
+  const [micDenied, setMicDenied] = useState(false);
   useEffect(() => { call('system:check', { lang }).then(setItems); }, [lang]);
   async function giveMic() {
-    try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((x) => x.stop()); setMicOk(true); } catch { setMicOk(false); }
+    // The system first (macOS asks once per app), then the microphone itself.
+    const access = await call('system:micAccess').catch(() => ({ status: 'granted' }));
+    if (access && (access.status === 'denied' || access.status === 'restricted')) { setMicOk(false); setMicDenied(true); return; }
+    try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((x) => x.stop()); setMicOk(true); setMicDenied(false); } catch { setMicOk(false); setMicDenied(true); }
   }
   const iconFor = (it) => (it.state === 'ok' ? <Icon name="check" size={20} stroke={2} style={{ color: 'var(--success)' }} /> : it.id === 'mic' ? <Icon name="mic" size={20} /> : <Icon name="alert" size={20} stroke={1.8} style={{ color: 'var(--warning)' }} />);
   return (
@@ -97,8 +101,10 @@ function Check({ t, lang, onNext, onBack }) {
         {(items || []).map((it) => (
           <li key={it.id} style={{ alignItems: it.id === 'mic' ? 'center' : 'start' }}>
             {iconFor(it.id === 'mic' && micOk ? { ...it, state: 'ok' } : it)}
-            <div className="col" style={{ gap: 4 }}><strong>{it.title}</strong><span className="muted">{it.id === 'mic' && micOk ? t('check.micOk') : it.text}</span></div>
-            {it.id === 'mic' ? (micOk ? <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>OK</span> : <Button onClick={giveMic}>{t('check.giveMic')}</Button>)
+            <div className="col" style={{ gap: 4 }}><strong>{it.title}</strong><span className="muted">{it.id === 'mic' && micOk ? t('check.micOk') : it.id === 'mic' && micDenied ? t('check.micDenied') : it.text}</span></div>
+            {it.id === 'mic' ? (micOk ? <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>OK</span>
+              : micDenied ? <span className="row" style={{ gap: 8 }}><Button onClick={() => call('system:openMicSettings')}>{t('check.openSettings')}</Button><Button variant="ghost" onClick={giveMic}>{t('check.retry')}</Button></span>
+              : <Button onClick={giveMic}>{t('check.giveMic')}</Button>)
               : <span style={{ fontSize: 12, fontWeight: 600, color: it.state === 'ok' ? 'var(--success)' : 'var(--warning)' }}>{it.badge}</span>}
           </li>
         ))}

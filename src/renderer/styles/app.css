@@ -418,12 +418,14 @@ li[aria-current="step"] .step-dot { border: 2px solid var(--accent); }
 .island-root { height: 100%; display: flex; justify-content: center; align-items: flex-start; padding: 10px 24px 32px; -webkit-app-region: no-drag; user-select: none;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .45)); }   /* the shadow follows the island's shape, also while it changes shape */
 .island { background: #151412; color: #EDE9E3; border: 1px solid rgba(237, 233, 227, .10); font-family: 'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
-.island.pill { height: 40px; padding: 0 16px 0 14px; border-radius: 999px; display: flex; align-items: center; gap: 12px; cursor: pointer; width: max-content; max-width: 100%; }
+.island.pill { min-height: 40px; padding: 0 16px 0 14px; border-radius: 999px; display: flex; align-items: center; gap: 12px; cursor: pointer; width: max-content; max-width: 100%; }
 .island.pill .waves { flex: none; width: 132px; }          /* fixed, so the pill is sized by its words, not stretched */
 .island.pill .grow { display: none; }
 /* The pill resizes smoothly to its content (island.jsx Pill). */
 .island.pill { display: block; padding: 0; overflow: hidden; transition: width 320ms cubic-bezier(.4, 0, .2, 1); }
-.island .pill-in { display: flex; align-items: center; gap: 12px; width: max-content; height: 100%; padding: 0 16px 0 14px; }
+.island .pill-in { display: flex; align-items: center; gap: 12px; width: max-content; min-height: 40px; padding: 0 16px 0 14px; }
+/* A longer message (e.g. what to do when dictation could not type) wraps onto a second line instead of being cut off. */
+.island.pill .warn { max-width: 320px; white-space: normal; line-height: 1.3; padding: 6px 0; }
 @media (prefers-reduced-motion: reduce) { .island.pill { transition: none; } }
 .island.pill button, .island button { -webkit-app-region: no-drag; }
 .island.open { width: 100%; overflow: hidden; border-radius: 20px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-app-region: drag; }

@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, dialog, clipboard, shell, nativeImage, nativeTheme, safeStorage,
-  session: electronSession, desktopCapturer, globalShortcut,
+  session: electronSession, desktopCapturer, globalShortcut, systemPreferences,
 } = require('electron');
 
 const { Store, DEFAULT_SETTINGS } = require('./store');
@@ -179,16 +179,37 @@ const services = {
     return { saved: true, name: path.basename(r.filePath), path: r.filePath };
   },
   writeClipboard: (text) => clipboard.writeText(text),
-  // Dictation: put the text on the clipboard and press Ctrl+V in whatever app has the focus (the island never takes it), then give the clipboard back.
+  // Dictation: put the text on the clipboard and press Ctrl+V (Windows) or Cmd+V (macOS) in whatever app has the focus
+  // (the island never takes it), then give the clipboard back.
   async insertText(text) {
     const before = clipboard.readText();
     clipboard.writeText(text);
-    if (process.platform !== 'win32') { const e = new Error('unsupported'); e.code = 'unsupported'; throw e; }
-    await new Promise((resolve, reject) => require('child_process').execFile('powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"],
-      { windowsHide: true, timeout: 8000 }, (err) => (err ? reject(err) : resolve())));
+    const run = (cmd, args, opts = {}) => new Promise((resolve, reject) => require('child_process').execFile(cmd, args, { timeout: 8000, ...opts }, (err) => (err ? reject(err) : resolve())));
+    if (process.platform === 'win32') {
+      await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"], { windowsHide: true });
+    } else if (process.platform === 'darwin') {
+      // macOS lets an app press keys in another app only with Accessibility permission. The first time, this asks for it
+      // (System Settings › Privacy & Security › Accessibility); until it is given, the text stays on the clipboard.
+      if (!systemPreferences.isTrustedAccessibilityClient(false)) {
+        systemPreferences.isTrustedAccessibilityClient(true);
+        const e = new Error('accessibility'); e.code = 'accessibility'; throw e;
+      }
+      await run('osascript', ['-e', 'tell application "System Events" to keystroke "v" using command down']);
+    } else { const e = new Error('unsupported'); e.code = 'unsupported'; throw e; }
     const t = setTimeout(() => { try { if (clipboard.readText() === text) clipboard.writeText(before); } catch { /* keep what we have */ } }, 700);
     if (t.unref) t.unref();
+  },
+  // Microphone permission. macOS keeps it per app and asks the person once: ask it here explicitly (the page's own request
+  // does not always bring the prompt up). Elsewhere the page's request is enough.
+  async micAccess() {
+    if (process.platform !== 'darwin') return { status: 'granted' };
+    let status = systemPreferences.getMediaAccessStatus('microphone');
+    if (status === 'not-determined') status = (await systemPreferences.askForMediaAccess('microphone')) ? 'granted' : 'denied';
+    return { status };
+  },
+  openMicSettings() {
+    if (process.platform === 'darwin') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+    else if (process.platform === 'win32') shell.openExternal('ms-settings:privacy-microphone');
   },
   revealFile: (file) => shell.showItemInFolder(file),
   async printPdf(html, { paper = 'A4' } = {}) {
@@ -246,13 +267,20 @@ const usage = new UsageReporter({ api, secure });
 
 // Global hotkeys: one to dictate, one to open/close the island. Each reports whether Windows let us have it.
 let hotkeyResult = { dictation: null, island: null };
+// The island shortcut opens/closes the meeting controls, so it only does something while a meeting is being recorded
+// (recording or paused). Otherwise (dictating, a meeting that has ended, nothing going on) it is ignored.
+const inMeeting = () => session.phase === 'recording' || session.phase === 'paused';
+function toggleIsland() {
+  if (islandWin && !islandWin.isDestroyed() && islandWin.mode === 'expanded') { setIslandMode('collapsed'); return; }   // closing always works
+  if (inMeeting()) setIslandMode('expanded');
+}
 function applyHotkeys() {
   globalShortcut.unregisterAll();
   const s = store.data.settings;
   const reg = (accel, fn) => { try { return accel ? globalShortcut.register(accel, fn) : null; } catch { return false; } };
   hotkeyResult = {
     dictation: s.dictation ? reg(s.hotkeyDictation, () => dictation.toggle()) : null,
-    island: reg(s.hotkeyIsland, () => setIslandMode(islandWin && islandWin.mode === 'expanded' ? 'collapsed' : 'expanded')),
+    island: reg(s.hotkeyIsland, toggleIsland),
   };
   broadcast('data:changed', { kind: 'hotkeys' });
 }
@@ -396,9 +424,9 @@ ipcMain.handle('ivuenu:call', async (event, channel, arg) => {
 const onApp = (channel, handler) => ipcMain.on(channel, (event, ...args) => { if (senderIsApp(event)) handler(event, ...args); });
 onApp('telemetry:event', (event, e) => { if (e && typeof e === 'object') telemetry.track(e.name, e.props); });     // checked against the allowlist inside
 onApp('rec:levels', (event, levels) => session.pushLevels(levels || {}));
-onApp('island:expand', () => setIslandMode('expanded'));
+onApp('island:expand', () => { if (inMeeting()) setIslandMode('expanded'); });
 onApp('island:collapse', () => setIslandMode('collapsed'));
-onApp('island:toggle', () => setIslandMode(islandWin && islandWin.mode === 'expanded' ? 'collapsed' : 'expanded'));
+onApp('island:toggle', toggleIsland);
 onApp('island:open-main', () => showMain());
 onApp('island:hover', (event, over) => { if (islandWin && !islandWin.isDestroyed() && event.sender === islandWin.webContents) islandWin.setInteractive(!!over); });
 
@@ -591,6 +619,8 @@ return app.whenReady().then(async () => {
   }
   telemetry.track('app_open', { signed_in: api.signedIn(), onboarded: !!store.data.onboarded, packaged: app.isPackaged, first_run: !store.data.installId, lang: store.data.settings.appLanguage });
   nativeTheme.themeSource = store.data.settings.theme;
+  // Development only: IVUENU_RESET_ONBOARDING=1 opens the setup wizard again (the data and the sign-in stay).
+  if (!app.isPackaged && process.env.IVUENU_RESET_ONBOARDING === '1') repo.setOnboarded(false);
 
   const ses = electronSession.defaultSession;
   // Microphone and computer sound for our own pages only; nothing else may ask for anything.

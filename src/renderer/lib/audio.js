@@ -1,5 +1,6 @@
 import { webmToPcm16 } from './pcm.mjs';
 import { PauseCutter } from './cutter.mjs';
+import { call } from './bridge.js';
 
 // Real audio levels from the microphone and from the computer's own sound (Windows "loopback", taken through the
 // screen-capture API with the picture thrown away; the main process allows it for our own pages only).
@@ -130,6 +131,7 @@ export async function startMeter({ micId = '', captureSystem = true, onLevels, o
     // rawMic (everybody in the room, no call): the browser's echo cancelling, noise suppression and automatic gain are switched off. There is no speaker to cancel, and
     // they flatten what tells one voice from another, which is exactly what is needed afterwards to separate the people.
     const raw = rawMic ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : {};
+    await call('system:micAccess').catch(() => null);          // macOS: make sure the permission prompt has been shown
     const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { ...raw, deviceId: { exact: micId } } : (rawMic ? raw : true), video: false });
     streams.push(stream); micStream = stream; mic = make(stream);
   } catch { errors.push('mic'); }

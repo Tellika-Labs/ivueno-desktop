@@ -159,6 +159,8 @@ function createHandlers(ctx) {
     'dictation:toggle': async () => ctx.dictation.toggle(),
     'dictation:audio': async (chunk) => { ctx.dictation.receiveAudio(chunk); return { ok: true }; },
     'onboarding:get': async () => ({ done: repo.onboarded() }),
+    'system:micAccess': async () => (services.micAccess ? services.micAccess() : { status: 'granted' }),
+    'system:openMicSettings': async () => { if (services.openMicSettings) services.openMicSettings(); return { ok: true }; },
     'onboarding:done': async () => { repo.setOnboarded(true); return { done: true }; },
     'shell:openExternal': async (url) => {
       if (!/^(https:|mailto:)/i.test(String(url))) throw fail('blocked', 'Só abrimos ligações https e mailto.');
