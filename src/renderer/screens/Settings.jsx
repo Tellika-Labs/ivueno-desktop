@@ -220,6 +220,8 @@ function Recording() {
       <Switch checked={settings.keepTranscript} onChange={(v) => patchSettings({ keepTranscript: v })} label={t("Guardar a transcrição depois das notas")} hint={t("Desligado = só notas: a transcrição é apagada depois")} />
       <Switch checked={settings.redact} onChange={(v) => patchSettings({ redact: v })} label={t("Ocultar detalhes sensíveis")} hint={t("Cartões e palavras-passe ficam •••• na transcrição e nas notas")} />
       <Switch checked={settings.island} onChange={(v) => patchSettings({ island: v })} label={t("Mostrar a ilha de gravação")} hint={t("Uma pílula no topo do ecrã enquanto gravas. Atalho: Ctrl+Shift+I")} />
+      <Switch checked={settings.meetingPrompt !== false} onChange={(v) => patchSettings({ meetingPrompt: v })} label={t("Avisar quando começar uma chamada")} hint={t("Zoom, Teams, Meet ou WhatsApp: pergunta se queres tomar notas. Só vê qual programa usa o microfone, nunca o áudio.")} />
+      <Switch checked={settings.launchAtLogin !== false} onChange={(v) => patchSettings({ launchAtLogin: v })} label={t("Abrir a Ivueno ao ligar o computador")} hint={t("Fica na barra de tarefas, sem abrir a janela, para te avisar quando começar uma chamada.")} />
       <div className="row muted" style={{ fontSize: 13, gap: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
         <Icon name="info" size={16} stroke={1.8} />{info.engine.realTranscription ? t('Transcrição e IA: serviço da Ivueno, na nuvem.') : t('Modo de desenvolvimento: a conversa é simulada.')}
       </div>

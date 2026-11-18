@@ -3,9 +3,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const EVENTS = new Set(['import:progress', 'voices:progress', 'rec:state', 'rec:segment', 'rec:levels', 'data:changed', 'settings:changed', 'licence:changed',
-  'island:mode', 'navigate', 'tray:new-meeting', 'account:switching', 'account:ready', 'app:quit-blocked', 'dictation:state', 'audio:flush', 'refine:progress', 'refine:decode', 'update:state']);
+  'island:mode', 'meetprompt:show', 'navigate', 'tray:new-meeting', 'account:switching', 'account:ready', 'app:quit-blocked', 'dictation:state', 'audio:flush', 'refine:progress', 'refine:decode', 'update:state']);
 const SENDS = new Set(['telemetry:event', 'rec:levels', 'dictation:levels', 'island:expand', 'island:collapse', 'island:open-main', 'island:toggle',
-  'win:minimize', 'win:maximize', 'win:close', 'island:hover']);
+  'win:minimize', 'win:maximize', 'win:close', 'island:hover', 'meetprompt:choose', 'meetprompt:hover']);
 
 contextBridge.exposeInMainWorld('ivuenu', {
   platform: process.platform,

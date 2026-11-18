@@ -139,6 +139,7 @@ function createHandlers(ctx) {
       const next = repo.patchSettings(patch || {});
       if ('theme' in (patch || {})) services.setTheme(next.theme);
       if ('island' in (patch || {})) services.setIsland(next.island);
+      if ('launchAtLogin' in (patch || {})) services.applyLogin?.();
       if (['dictation', 'hotkeyDictation', 'hotkeyIsland'].some((k) => k in (patch || {}))) services.applyHotkeys();
       if ('appLanguage' in (patch || {})) services.refreshLanguage?.();
       return settingsView();

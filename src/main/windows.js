@@ -39,7 +39,7 @@ function lockDown(win) {
   win.webContents.on('will-redirect', keepCheckout);
 }
 
-function createMain({ onClose } = {}) {
+function createMain({ onClose, show = true } = {}) {
   const win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 940, minHeight: 640, show: false, title: 'Ivueno',
     backgroundColor: '#F7F5F2', icon: appIcon(),
@@ -48,7 +48,7 @@ function createMain({ onClose } = {}) {
     webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
   });
   lockDown(win);
-  win.once('ready-to-show', () => { win.show(); if (DEV_URL) win.webContents.openDevTools({ mode: 'detach' }); });   // development only: the console opens beside the app
+  win.once('ready-to-show', () => { if (show) win.show(); if (DEV_URL) win.webContents.openDevTools({ mode: 'detach' }); });   // development only: the console opens beside the app
   win.on('close', (event) => onClose && onClose(event));
   win.loadURL(pageUrl('index.html'));
   return win;
@@ -103,4 +103,25 @@ function createIsland({ saved, onMoved }) {
   return win;
 }
 
-module.exports = { createMain, createIsland, appIcon, SIZES, pageUrl, lockDown };
+// The "take notes?" card that slides in when a call starts (renderer/prompt.jsx). A small window in the top-right corner: it never takes the
+// keyboard focus (the call keeps it), is not captured by screen sharing, and is shown with showInactive().
+const PROMPT_SIZE = { w: 440, h: 270 };
+function createMeetingPrompt() {
+  const area = screen.getPrimaryDisplay().workArea;
+  const win = new BrowserWindow({
+    width: PROMPT_SIZE.w, height: PROMPT_SIZE.h, x: area.x + area.width - PROMPT_SIZE.w, y: area.y,
+    frame: false, transparent: true, resizable: false, movable: false, minimizable: false, maximizable: false, skipTaskbar: true, focusable: false,
+    show: false, hasShadow: false, alwaysOnTop: true, title: 'Ivueno',
+    ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
+    webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setContentProtection(true);
+  win.setIgnoreMouseEvents(true, { forward: true });      // only the banner catches the mouse (the page says when: meetprompt:hover)
+  lockDown(win);
+  win.loadURL(pageUrl('prompt.html'));
+  return win;
+}
+
+module.exports = { createMain, createIsland, createMeetingPrompt, appIcon, SIZES, pageUrl, lockDown };

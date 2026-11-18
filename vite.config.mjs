@@ -26,6 +26,7 @@ export default defineConfig({
       input: {
         main: path.resolve(here, 'src/renderer/index.html'),
         island: path.resolve(here, 'src/renderer/island.html'),
+        prompt: path.resolve(here, 'src/renderer/prompt.html'),
       },
     },
   },

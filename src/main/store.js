@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS = {
   keepTranscript: true,
   redact: true,
   island: true,
+  launchAtLogin: true,        // start with the computer, hidden in the tray, so calls can be noticed (see applyLogin in index.js)
+  meetingPrompt: true,        // offer to take notes when a call (Zoom, Teams, Meet, WhatsApp...) starts: see meeting-detector.js
   dictation: true,
   hotkeyDictation: 'Control+Space',   // press to start, press again to stop
   hotkeyIsland: 'CommandOrControl+Shift+I',

@@ -23,7 +23,8 @@ const { VOICE_MODEL } = voicesLib;
 const { EngineRouter } = require('./engine/router');
 const { Session } = require('./session');
 const { createHandlers } = require('./handlers');
-const { createMain, createIsland } = require('./windows');
+const { createMain, createIsland, createMeetingPrompt } = require('./windows');
+const { MeetingDetector } = require('./meeting-detector');
 const { png } = require('./icons');
 const { clock } = require('./util');
 const brand = require('./brand');
@@ -87,6 +88,9 @@ const isLocalApi = () => /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(api
 
 let mainWin = null;
 let islandWin = null;
+let promptWin = null;      // the "take notes?" card (see showMeetingPrompt)
+let promptTimer = null;
+let detector = null;       // watches for a call to start; one per open account
 let tray = null;
 let quitting = false;
 
@@ -257,6 +261,11 @@ const services = {
     setTimeout(switchAccount, 0);
   },
   setIsland: () => syncIsland(session.snapshot()),
+  // Start with the computer (installed builds only: a development run would register electron.exe). It starts hidden, in the tray.
+  applyLogin() {
+    if (!app.isPackaged || !['win32', 'darwin'].includes(process.platform)) return;
+    try { app.setLoginItemSettings({ openAtLogin: store.data.settings.launchAtLogin !== false, args: ['--hidden'] }); } catch { /* the system refused: nothing to do */ }
+  },
 };
 
 let flushWaiter = null;
@@ -346,6 +355,7 @@ function openAccount() {
   s.on('state', (snap) => {
     if (!live()) return;
     broadcast('rec:state', snap);
+    if (autoRec && snap.phase !== 'recording' && snap.phase !== 'paused') resetAutoRec();      // stopped by hand (or it ended): nothing more to ask
     syncIsland(snap);
     const key = `${snap.phase}|${Math.floor(snap.elapsedMs / 1000)}`;
     if (key !== lastTrayKey) { lastTrayKey = key; buildTray(snap); }
@@ -355,6 +365,14 @@ function openAccount() {
   s.on('notes-state', (payload) => emit('data:changed', { kind: 'notes', ...payload }));
   s.on('notes', (id) => emit('data:changed', { kind: 'notes', id }));
 
+  detector = new MeetingDetector({ getSettings: () => st.data.settings, busy: () => s.phase !== 'idle' && s.phase !== 'done' });
+  detector.on('detected', (call) => { if (live()) showMeetingPrompt(call); });
+  detector.on('ended', (call) => {
+    if (!live()) return;
+    if (promptKey === call.key) closeMeetingPrompt();
+    if (autoRec && (autoRec.any || autoRec.key === call.key)) scheduleEndAsk();      // the call is over: ask about the recording in a minute
+  });
+
   repo = r; session = s; importer = imp; archive = arc; refiner = ref; telemetry = tel; sync = syn; syncRef = syn; pairing = pair;
   handlers = createHandlers({ repo: r, session: s, engine, api, licence, secure, services, dictation, usage, sync: syn, pairing: pair, archive: arc, refiner: ref, decodeReply, importer: imp, mediaDecoder, voices, voiceModels, updater, version: app.getVersion() });
 }
@@ -363,6 +381,9 @@ function openAccount() {
 function closeAccount() {
   accountGen++;
   clearInterval(purgeTimer); purgeTimer = null;
+  try { detector.stop(); } catch { /* not started */ }
+  resetAutoRec();
+  closeMeetingPrompt();
   try { sync.stop(); } catch { /* not started */ }
   try { telemetry.stop(); } catch { /* not started */ }
   try { pairing.cancel().catch(() => {}); } catch { /* nothing waiting */ }
@@ -388,6 +409,7 @@ function switchAccount() {
 function startAccount() {
   nativeTheme.themeSource = store.data.settings.theme;
   telemetry.start();
+  detector.start();
   if (api.signedIn()) usage.flush().catch(() => {});
   sync.start();
   if (api.signedIn()) sync.syncNow().catch(() => {});
@@ -400,7 +422,7 @@ openAccount();
 // Allowed senders: our own pages only.
 const senderIsApp = (e) => {
   const url = e.senderFrame ? e.senderFrame.url : '';
-  return isAppPage(url) && e.senderFrame === e.sender.mainFrame && [mainWin, islandWin].some((win) => win && !win.isDestroyed() && win.webContents === e.sender);
+  return isAppPage(url) && e.senderFrame === e.sender.mainFrame && [mainWin, islandWin, promptWin].some((win) => win && !win.isDestroyed() && win.webContents === e.sender);
 };
 
 ipcMain.handle('ivuenu:call', async (event, channel, arg) => {
@@ -466,6 +488,114 @@ function syncIsland(snap) {
   }
 }
 
+// --- "take notes?" card ----------------------------------------------------------------------------
+
+let promptKey = null;
+let promptMode = 'detected';   // 'detected' (offer to take notes) | 'ended' (the call is over: stop recording?)
+let endAsks = 0;               // how many times the "call over" card has been shown for this ending
+let autoRec = null;            // the recording started from the card: { key, app, any }. Only such a recording is stopped when its call ends.
+let endTimer = null;
+function closeMeetingPrompt() {
+  clearTimeout(promptTimer); promptTimer = null; promptKey = null;
+  if (promptWin && !promptWin.isDestroyed()) promptWin.close();
+  promptWin = null;
+}
+function resetAutoRec() {
+  autoRec = null; endAsks = 0; clearTimeout(endTimer); endTimer = null;
+  if (promptMode === 'ended') closeMeetingPrompt();
+}
+
+/** The words of the card (already translated for the interface language) and how long each step waits (a bar counts it down; hovering pauses it). */
+function promptTexts(extra = {}) {
+  const T = (pt, en, fr) => nativeText(pt, en, fr);
+  return {
+    title: T('Reunião detetada', 'Meeting detected', 'Réunion détectée'),
+    start: T('Tomar notas', 'Take notes', 'Prendre des notes'),
+    notNow: T('Agora não', 'Not now', 'Pas maintenant'),
+    never: T('Silenciar 1 hora', 'Mute for 1 hour', 'Ignorer 1 h'),
+    close: T('Fechar', 'Close', 'Fermer'),
+    consentTitle: T('Os participantes sabem?', 'Does everyone know?', 'Les participants sont-ils au courant ?'),
+    consentBody: T('Avisa sempre os participantes que a reunião vai ser gravada.', 'Always tell the participants the meeting is being recorded.', 'Prévenez toujours les participants que la réunion est enregistrée.'),
+    told: T('Já avisei os participantes', 'I told the participants', 'J’ai prévenu les participants'),
+    solo: T('Só eu (notas pessoais)', 'Just me (personal notes)', 'Juste moi (notes personnelles)'),
+    more: T('Mais opções', 'More options', 'Plus d’options'), back: T('Voltar', 'Back', 'Retour'),
+    stop: T('Parar', 'Stop', 'Arrêter'), keep: T('Continuar', 'Keep going', 'Continuer'),
+    askMs: 15_000, consentMs: 30_000,
+    ...extra,
+  };
+}
+
+/** Opens the card's window and shows `payload` in it. Left alone, it goes away by itself (the card's own countdown is much shorter). */
+function presentPrompt(payload) {
+  promptWin = createMeetingPrompt();
+  const win = promptWin;
+  win.webContents.once('did-finish-load', () => { if (!win.isDestroyed()) { win.webContents.send('meetprompt:show', payload); win.showInactive(); } });
+  promptTimer = setTimeout(closeMeetingPrompt, 120_000);
+  if (promptTimer.unref) promptTimer.unref();
+}
+
+/** A call was noticed: slide the card in. Only when someone is signed in and set up, and nothing is being recorded. Answering "take notes" asks the consent question first. */
+function showMeetingPrompt({ key, app: appId, label }) {
+  if (!store.data.onboarded || !api.signedIn() || secure.get('user')?.id !== store.data.accountId) return;
+  if (session.phase === 'recording' || session.phase === 'paused' || dictation.phase !== 'idle') return;
+  closeMeetingPrompt();
+  promptKey = key; promptMode = 'detected';
+  presentPrompt({ mode: 'detected', key, app: appId, label, texts: promptTexts() });
+  telemetry.track('feature', { name: 'meeting_prompt', action: 'shown', source: appId });
+}
+
+/** The call of a recording started from the card is over (a minute ago): ask whether to stop. No answer -> ask once more -> then stop. */
+function scheduleEndAsk() {
+  clearTimeout(endTimer);
+  endTimer = setTimeout(() => {
+    if (!autoRec || !inMeeting() || detector.call) return;       // stopped meanwhile, or a call is going on again
+    showEndPrompt(1);
+  }, 60_000);
+  if (endTimer.unref) endTimer.unref();
+}
+
+function showEndPrompt(n) {
+  if (!autoRec || !inMeeting()) return;
+  const T = (pt, en, fr) => nativeText(pt, en, fr);
+  closeMeetingPrompt();
+  endAsks = n;
+  promptKey = `end${n}:${Date.now()}`; promptMode = 'ended';
+  const texts = promptTexts({
+    title: n === 1 ? T('A reunião terminou', 'The meeting has ended', 'La réunion est terminée') : T('A gravação vai parar', 'The recording is about to stop', 'L’enregistrement va s’arrêter'),
+    sub: n === 1 ? T('Parar a gravação?', 'Stop recording?', 'Arrêter l’enregistrement ?') : T('Sem resposta, pára sozinha.', 'No answer: it stops by itself.', 'Sans réponse, il s’arrête seul.'),
+    keep: T('Continuar a gravar', 'Keep recording', 'Continuer'),
+  });
+  presentPrompt({ mode: 'ended', key: promptKey, label: '', texts });
+  telemetry.track('feature', { name: 'meeting_prompt', action: n === 1 ? 'end_shown' : 'end_again', source: autoRec.app });
+}
+
+function stopAutoRecording() {
+  resetAutoRec();
+  Promise.resolve(session.stop()).catch(() => {});
+}
+
+onApp('meetprompt:hover', (event, over) => { if (promptWin && !promptWin.isDestroyed() && event.sender === promptWin.webContents) promptWin.setIgnoreMouseEvents(!over, { forward: true }); });
+onApp('meetprompt:choose', (event, choice) => {
+  if (!choice || !promptWin || promptWin.isDestroyed() || event.sender !== promptWin.webContents || choice.key !== promptKey) return;
+  const mode = promptMode;
+  const call = detector.call && detector.call.key === promptKey ? detector.call : null;
+  closeMeetingPrompt();
+  if (mode === 'ended') {
+    telemetry.track('feature', { name: 'meeting_prompt', action: `end_${String(choice.value)}`, source: autoRec ? autoRec.app : undefined });
+    if (!autoRec) return;
+    if (choice.value === 'continue') { autoRec.any = true; endAsks = 0; }          // keep recording; asked again when a call ends again
+    else if (choice.value === 'stop') stopAutoRecording();
+    else if (endAsks < 2) showEndPrompt(endAsks + 1);                                // no answer: ask once more
+    else stopAutoRecording();                                                       // still no answer: stop
+    return;
+  }
+  telemetry.track('feature', { name: 'meeting_prompt', action: String(choice.value), source: call ? call.app : undefined });
+  if (choice.value === 'confirmed' || choice.value === 'solo') {
+    const started = { key: call ? call.key : null, app: call ? call.app : undefined };
+    trayStart(choice.value, { background: true }).then((ok) => { if (ok) autoRec = { ...started, any: false }; }).catch(() => {});
+  } else if (choice.value === 'snooze' && call) detector.snooze(call.app);
+  else detector.dismiss();
+});
 // --- tray -------------------------------------------------------------------------------------------
 
 // macOS: a one-colour template image at menu-bar size (18pt, with an @2x file picked automatically), which the system recolours
@@ -529,25 +659,27 @@ function sendToMain(channel, payload) {
 }
 
 /** Starts a meeting from the menu-bar icon with the saved defaults (place, notes style, language, transcript, hiding). */
-async function trayStart(consent) {
-  if (!store.data.onboarded || !api.signedIn() || secure.get('user')?.id !== store.data.accountId) { showMain(); return; }   // the app asks to sign in / finish setup
+async function trayStart(consent, { background = false } = {}) {
+  if (!store.data.onboarded || !api.signedIn() || secure.get('user')?.id !== store.data.accountId) { showMain(); return false; }   // the app asks to sign in / finish setup
   const s = store.data.settings;
   const place = s.meetingPlace || 'both';
   // The main window captures the sound, so it has to exist; it stays where it is if it is already open.
-  if (!mainWin || mainWin.isDestroyed()) openMain();
+  if (!mainWin || mainWin.isDestroyed()) openMain({ show: !background });
   try {
     await handlers['rec:start']({
       consent,
       input: { place, title: '', folderId: null, template: s.template, language: s.language === 'auto' ? null : s.language, translateTo: null, keepTranscript: s.keepTranscript, redact: s.redact, attendees: [], calendarEventId: null },
     });
     telemetry.track('feature', { name: 'meeting_start', place, consent, template: s.template, ok: true });
-    sendToMain('navigate', { name: 'live' });
+    if (!background) sendToMain('navigate', { name: 'live' });      // from the "take notes?" card only the island shows: the window stays where it is
+    return true;
   } catch (err) {
     telemetry.track('feature', { name: 'meeting_start', place, consent, template: s.template, ok: false, code: err && err.code });
     const blocked = err && (err.code === 'limit_reached' || err.code === 'plan_required');
-    if (blocked) { sendToMain('navigate', { name: 'plans' }); return; }
+    if (blocked) { sendToMain('navigate', { name: 'plans' }); return false; }
     showMain();
     dialog.showMessageBox({ type: 'warning', message: nativeText('Não foi possível começar a gravar.', 'Could not start recording.', 'Impossible de commencer l’enregistrement.'), detail: (err && err.message) || '' });
+    return false;
   }
 }
 
@@ -570,12 +702,15 @@ function showMain() {
   mainWin.show(); mainWin.focus();
 }
 
-function openMain() {
+function openMain({ show = true } = {}) {
   mainWin = createMain({
+    show,
 
     onClose: (event) => {
       const busy = session.phase === 'recording' || session.phase === 'paused' || session.phase === 'writing';
-      if (!quitting && busy) { event.preventDefault(); mainWin.hide(); }      // keep recording in the background
+      // Keep running in the tray while recording, and also when Ivueno is watching for calls (it cannot do that once closed). "Sair" in the tray quits.
+      const watching = store.data.settings.meetingPrompt !== false;
+      if (!quitting && (busy || watching)) { event.preventDefault(); mainWin.hide(); }
     },
   });
   mainWin.on('closed', () => { mainWin = null; if (!quitting && process.platform !== 'darwin') app.quit(); });
@@ -638,8 +773,12 @@ return app.whenReady().then(async () => {
       .catch(() => callback({}));
   }, { useSystemPicker: false });
 
-  openMain();
+  // Opened by the system at login: stay in the tray (no window) when someone is signed in and set up. Otherwise the window opens as usual.
+  const atLogin = process.argv.includes('--hidden') || (() => { try { return !!app.getLoginItemSettings().wasOpenedAtLogin; } catch { return false; } })();
+  const signedInReady = store.data.onboarded && api.signedIn() && secure.get('user')?.id === store.data.accountId;
+  openMain({ show: !(atLogin && signedInReady) });
   mainWin.once('ready-to-show', syncOverlay);
+  services.applyLogin();
   await brand.prewarm();         // the tray icons (not needed by the window, so it opens first)
   buildTray(session.snapshot());
   applyHotkeys();

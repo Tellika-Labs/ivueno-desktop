@@ -6,10 +6,10 @@ const ROOT = path.resolve(__dirname, '..', '..', 'dist', 'renderer');
 function isAppPage(value, devUrl = process.env.VITE_DEV_URL || '') {
   try {
     const url = new URL(value);
-    if (devUrl) return url.origin === new URL(devUrl).origin && ['/', '/index.html', '/island.html'].includes(url.pathname);
+    if (devUrl) return url.origin === new URL(devUrl).origin && ['/', '/index.html', '/island.html', '/prompt.html'].includes(url.pathname);
     if (url.protocol !== 'file:' || url.host) return false;
     const file = path.resolve(fileURLToPath(url));
-    return ['index.html', 'island.html'].some((name) => file === path.join(ROOT, name));
+    return ['index.html', 'island.html', 'prompt.html'].some((name) => file === path.join(ROOT, name));
   } catch { return false; }
 }
 
