@@ -1,3 +1,4 @@
+import { aiLimitRows, AI_ACTION_LABELS } from '../lib/ai-usage.mjs';
 import { useAutoTour } from '../components/Tour.jsx';
 import React, { useState } from 'react';
 import { useT } from '../lib/i18n.js';
@@ -61,7 +62,17 @@ export default function Plans() {
               <ul>
                 <li><Icon name="check" size={16} stroke={2.2} />{p.meetings_per_month == null ? t('Reuniões sem limite') : t('{n} reuniões por mês', { n: p.meetings_per_month })}</li>
                 {p.features.filter((f) => f !== 'unlimited_meetings').map((f) => <li key={f}><Icon name="check" size={16} stroke={2.2} />{t(FEATURE_TEXT[f] || f)}</li>)}
+                {p.cloud_minutes ? <li><Icon name="check" size={16} stroke={2.2} />{t('{n} minutos de transcrição por mês', { n: p.cloud_minutes })}{p.per_seat ? t(' por lugar') : ''}</li> : null}
+                {aiLimitRows(p.ai_limits).filter((r) => r.key === 'ask_total').map((r) => <li key="ask"><Icon name="check" size={16} stroke={2.2} />{t('{n} perguntas, receitas, resumos e emails por mês', { n: r.limit })}{p.per_seat && p.id === 'team' ? t(' por lugar') : ''}</li>)}
               </ul>
+              {aiLimitRows(p.ai_limits).length > 0 && (
+                <details className="muted" style={{ fontSize: 12 }}>
+                  <summary>{t('Limites por ação')}</summary>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 16 }}>
+                    {aiLimitRows(p.ai_limits).map((r) => <li key={r.key}>{t(AI_ACTION_LABELS[r.key])}: {r.limit == null ? t('Sem limite') : r.limit}</li>)}
+                  </ul>
+                </details>
+              )}
             </div>
           ))}
         </div>

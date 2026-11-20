@@ -37,7 +37,7 @@ function initials(name) {
  *             printPdf(html), fetchText(url), wipeLocal() , setTheme(t), setIsland(on) }
  */
 function createHandlers(ctx) {
-  const { repo, session, engine, api, licence, secure, services, sync, pairing, archive, refiner } = ctx;
+  const { repo, session, engine, api, licence, secure, services, sync, sharing, pairing, archive, refiner } = ctx;
   const { qrSvg } = require('./qr');
   const { STYLES, transcriptText, notesText } = require('./engine/summarize');
   const { TONES, material, hasMaterial } = require('./engine/email');
@@ -246,6 +246,7 @@ function createHandlers(ctx) {
     'auth:logout': async () => {
       if (session.phase === 'recording' || session.phase === 'paused') throw fail('recording', 'Pára a gravação antes de sair da conta.');
       try { if (sync && sync.disable) await sync.disable(); } catch { /* the key is forgotten below anyway when the tokens go */ }
+      if (sharing) sharing.stop();
       await api.logout(); licence.clear(); secure.set('user', null);
       return { signedIn: false };
     },
@@ -286,6 +287,14 @@ function createHandlers(ctx) {
     },
     // organisation screens: the renderer may only reach /v1/orgs (members, invites, rules, audit, directory and company sign-in settings)
     'org:list': async () => api.request('GET', '/v1/orgs'),
+    // shared folders: share a local folder with an organisation (readable copies go up), stop sharing, and read what teammates shared
+    'sharing:share': async ({ folderId, orgId, orgName, includeTranscript }) => { await sharing.shareFolder(String(folderId), String(orgId), { includeTranscript: !!includeTranscript, orgName: String(orgName || '') }); return repo.listFolders(); },
+    'sharing:unshare': async ({ folderId }) => { await sharing.unshareFolder(String(folderId)); return repo.listFolders(); },
+    'shared:folders': async () => api.sharedFolders(),
+    'shared:meetings': async ({ folderId, cursor }) => api.sharedMeetings(folderId, cursor),
+    'shared:meeting': async (id) => api.sharedMeeting(String(id)),
+    'shared:segments': async (id) => api.sharedSegments(String(id)),
+    'shared:chat': async ({ id, message, history }) => api.sharedChat(String(id), String(message || '').slice(0, 2000), Array.isArray(history) ? history.slice(-12) : []),
     'app:copy': async (text) => { await services.writeClipboard(String(text || '').slice(0, 2000)); return { copied: true }; },
     'org:call': async ({ method = 'GET', path, body, query }) => {
       if (!ORG_PATH.test(String(path || '')) || !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
@@ -378,6 +387,7 @@ function createHandlers(ctx) {
     'meetings:patch': async ({ id, patch }) => view(repo.updateMeeting(id, patch)),
     'meetings:delete': async (id) => {
       if (session.meetingId === id && (session.phase === 'recording' || session.phase === 'paused')) throw fail('recording', 'Pára a gravação antes de apagar a reunião.');
+      if (sharing) { try { await sharing.removeMeetingCopy(id); } catch { /* the copy is removed on the next try */ } }
       repo.deleteMeeting(id); return { ok: true };
     },
     'meetings:interrupted': async () => repo.interrupted(),
@@ -444,7 +454,12 @@ function createHandlers(ctx) {
     'folders:list': async () => repo.listFolders(),
     'folders:create': async (name) => repo.createFolder(name),
     'folders:rename': async ({ id, name }) => { repo.renameFolder(id, name); return repo.listFolders(); },
-    'folders:delete': async (id) => { repo.deleteFolder(id); return repo.listFolders(); },
+    'folders:delete': async (id) => {
+      const later = sharing ? await sharing.folderWillBeDeleted(String(id)) : [];     // a shared folder is un-shared first (its copies leave the server)
+      repo.deleteFolder(id);
+      for (const mid of later) sharing.schedule(mid, 200);
+      return repo.listFolders();
+    },
     'search:run': async (q) => { const r = repo.search(q); if (r.total) repo.rememberSearch(q); return r; },
 
     // --- export -----------------------------------------------------------------------------
@@ -538,7 +553,7 @@ function createHandlers(ctx) {
     },
     'rec:pause': async () => { session.pause(); return session.snapshot(); },
     'rec:resume': async () => { session.resume(); return session.snapshot(); },
-    'rec:stop': async () => { const m = await session.stop(); return view(m); },
+    'rec:stop': async () => { const m = await session.stop({ wait: false }); return view(m); },
     'rec:quickNote': async (text) => { session.quickNote(text); return { ok: true }; },
     'rec:resumeInterrupted': async (id) => { gate(); return view(session.resumeInterrupted(id)); },
     'rec:dismissInterrupted': async (id) => {

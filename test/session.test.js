@@ -159,3 +159,17 @@ test('recipes: live catch-up works, unsupported ones say so honestly', async () 
   assert.match(c.text, /cancelamentos/);
   assert.equal((await engine.ask(repo.getMeeting(m.id), 'zzzz yyyy', nameOf)).text, 'Não encontrei isso nesta reunião.');
 });
+
+test('writing the notes again for a meeting that already has notes tells the engine it is a regeneration', async () => {
+  const seen = [];
+  const engine = new DemoEngine({ stepMs: 10 });
+  const write = engine.writeNotes.bind(engine);
+  engine.writeNotes = async (m, nameOf, opts) => { seen.push(opts); return write(m, nameOf); };
+  const { repo, session } = setup();
+  session.engine = engine;
+  const m = repo.createMeeting({ status: 'done' });
+  repo.addSegments(m.id, [{ text: 'We agree to ship on Friday.', speakerKey: 'spk_1' }]);
+  await session.generateNotes(m.id);                         // the first notes: free
+  await session.generateNotes(m.id);                         // again: counts as a regeneration
+  assert.deepEqual(seen.map((o) => !!(o && o.regenerate)), [false, true]);
+});

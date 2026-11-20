@@ -59,21 +59,7 @@ function toText(m, opts) {
 }
 
 function toHtml(m, opts) {
-  const s = sections(m, opts);
-  const li = (items) => `<ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul>`;
-  return `<!doctype html><html lang="pt"><head><meta charset="utf-8"><title>${esc(s.title)}</title><style>
-body{font-family:'Segoe UI',Arial,sans-serif;color:#1F1D1A;line-height:1.5;margin:40px;font-size:12pt}
-h1{font-size:22pt;margin:0 0 4px}h2{font-size:14pt;margin:22px 0 6px}.meta{color:#57524B;font-size:10pt}
-.add{color:#57524B;margin-left:18px;font-size:11pt}ul{padding-left:20px}</style></head><body>
-<h1>${esc(s.title)}</h1><div class="meta">${esc(s.when)}${s.people.length ? ` · ${esc(s.people.join(', '))}` : ''}</div>
-${s.summary ? `<h2>Resumo</h2><p>${esc(s.summary)}</p>` : ''}
-${s.mine.length ? `<h2>As tuas notas</h2>${s.mine.map((l) => `<div>${esc(l)}</div>`).join('')}` : ''}
-${s.blocks.some((b) => b.add) ? `<h2>Notas da Ivueno</h2>${s.blocks.map((b) => `<div>${esc(b.mine)}</div>${b.add ? `<div class="add">${esc(b.add)}${b.t ? ` (${esc(b.t)})` : ''}</div>` : ''}`).join('')}` : ''}
-${s.extra.length ? `<h2>Também foi dito</h2>${li(s.extra.map((e) => esc(e.text)))}` : ''}
-${s.tasks.length ? `<h2>Tarefas</h2>${li(s.tasks.map((t) => `${t.done ? '☑' : '☐'} ${esc(t.text)} <span class="meta">— ${esc(t.meta)}</span>`))}` : ''}
-${s.transcript ? `<h2>Transcrição</h2>${s.transcript.map((t) => `<p><b>${esc(t.who)}</b> <span class="meta">${t.t}</span><br>${esc(t.text)}${t.tr ? `<br><i>${esc(t.tr)}</i>` : ''}</p>`).join('')}` : ''}
-${opts.brand ? '<div class="meta" style="margin-top:28px;border-top:1px solid #DDD7CC;padding-top:8px">Notas criadas com a Ivueno</div>' : ''}
-</body></html>`;
+  return require('./pdf-template').renderMeetingPdf(sections(m, opts), opts);
 }
 
 function toDocx(m, opts) {

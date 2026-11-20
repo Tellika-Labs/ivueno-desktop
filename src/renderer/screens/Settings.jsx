@@ -1,3 +1,4 @@
+import { aiMeterRows, AI_ACTION_LABELS } from '../lib/ai-usage.mjs';
 import { useAutoTour } from '../components/Tour.jsx';
 import React, { useEffect, useState } from 'react';
 import Icon from '../components/Icon.jsx';
@@ -208,6 +209,10 @@ function Recording() {
             options={Object.entries(TEMPLATE_NAMES).map(([id, label]) => ({ id, label: t(label) }))} />
         </Field>
       </div>
+      <Field label={t('Traduzir as notas para')} htmlFor="st-tr">
+        <LanguageDropdown id="st-tr" label={t('Traduzir as notas para')} value={settings.translateTo || ''} onChange={(translateTo) => patchSettings({ translateTo })}
+          options={[{ id: '', label: t('Idioma da reunião') }, ...spokenLanguages]} />
+      </Field>
       <GlossaryField />
       <div className="col" style={{ gap: 4 }}>
         <span className="label">{t('Transcrição e IA')}</span>
@@ -215,6 +220,15 @@ function Recording() {
           {t('O áudio é enviado ao serviço de transcrição da Ivueno e apagado logo a seguir; o texto é enviado para escrever as notas, os resumos e os emails. As reuniões ficam guardadas neste computador.')}
           {cloud.data ? ` ${t('{used} de {limit} minutos usados este mês.', { used: cloud.data.minutes_used, limit: cloud.data.minutes_limit })}` : ''}
         </span>
+        {aiMeterRows(cloud.data && cloud.data.ai_actions).length > 0 && (
+          <ul className="muted" style={{ fontSize: 13, margin: '6px 0 0', paddingLeft: 18 }} aria-label={t('Ações de IA usadas este mês')}>
+            {aiMeterRows(cloud.data.ai_actions).map((r) => (
+              <li key={r.key} style={r.full ? { color: 'var(--danger, #b3261e)' } : undefined}>
+                {t(AI_ACTION_LABELS[r.key])}: {r.unlimited ? t('{used} (sem limite)', { used: r.used }) : t('{used} de {limit}', { used: r.used, limit: r.limit })}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <Switch checked={settings.captureSystem} onChange={(v) => patchSettings({ captureSystem: v })} label={t("Gravar o som do computador")} hint={t("Necessário para ouvir quem está do outro lado da chamada")} />
       <Switch checked={settings.keepTranscript} onChange={(v) => patchSettings({ keepTranscript: v })} label={t("Guardar a transcrição depois das notas")} hint={t("Desligado = só notas: a transcrição é apagada depois")} />

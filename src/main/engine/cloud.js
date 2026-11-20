@@ -129,12 +129,13 @@ class CloudEngine {
   _transcript(meeting, nameOf) { return meeting.segments.map((s) => ({ speaker: nameOf(s.speakerKey), text: s.text })); }
 
   /** Notes: the person's own lines are matched to what was said locally; the title, summary and tasks come from the server's model. */
-  async writeNotes(meeting, nameOf) {
+  async writeNotes(meeting, nameOf, opts = {}) {
     const local = localNotes(meeting, nameOf);
     try {
       const out = await this.api.cloudNotes({
         title: meeting.title || '', my_notes: meeting.myNotes || '', attendees: (meeting.attendees || []).map((a) => a.name || a.email).filter(Boolean),
         transcript: this._transcript(meeting, nameOf), template: toServerKey(effectiveTemplate(meeting)), language: meetingLanguage(meeting), redact: meeting.redact !== false,
+        ...(opts.regenerate ? { regenerate: true } : {}),
       });
       const lines = String(out.notes_markdown || '').split('\n').map((l) => l.replace(/^[\s#>*•-]+/, '').trim()).filter(Boolean).slice(0, 14);
       return {

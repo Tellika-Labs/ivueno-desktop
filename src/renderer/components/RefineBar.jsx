@@ -5,6 +5,7 @@ import VoiceModelCard from './VoiceModelCard.jsx';
 import { call, on } from '../lib/bridge.js';
 import { friendly } from '../lib/errors.mjs';
 import { useApp } from '../lib/app-context.js';
+import Dropdown from './Dropdown.jsx';
 
 const WHY = {
   offline: 'Sem ligação à internet. Tenta outra vez quando estiveres online.',
@@ -38,6 +39,9 @@ export default function RefineBar({ m }) {
     try { await call('refine:start', { id: m.id, mode }); } catch (e) { toast(friendly(e)); }
     setBusy(false);
   }
+  async function setPeople(voiceCount) {
+    try { await call('meetings:patch', { id: m.id, patch: { voiceCount } }); } catch (e) { toast(friendly(e)); }
+  }
   async function remove() {
     setAsking(false);
     try { await call('audio:delete', { id: m.id }); toast(t('Áudio apagado.')); } catch (e) { toast(friendly(e)); }
@@ -67,6 +71,13 @@ export default function RefineBar({ m }) {
         {done && r.voices > 1 && <span className="tag">{t('{n} vozes encontradas', { n: r.voices })}</span>}
         {done && r.voices === 1 && r.voiceState === 'on' && <span className="muted">{t('Foi encontrada uma só voz.')}</span>}
         {kept && <span className="muted">{t('Áudio guardado neste computador')}{m.audio.keepUntil ? ` ${t('até')} ${new Date(m.audio.keepUntil).toLocaleDateString('pt-PT')}` : ''}{m.audioBytes ? ` · ${size(m.audioBytes)}` : ''}</span>}
+        {kept && (
+          <label className="row" style={{ gap: 6 }}>
+            <span className="muted">{t('Quantas pessoas falam?')}</span>
+            <Dropdown id="rb-people" label={t('Quantas pessoas falam?')} value={m.voiceCount || 0} onChange={setPeople} compact
+              options={[{ id: 0, label: t('Descobrir sozinha') }, ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => ({ id: n, label: String(n) }))]} />
+          </label>
+        )}
         {kept && <Button size="sm" disabled={busy} onClick={() => start('voices')}>{done && r.mode === 'voices' ? t('Separar as vozes de novo') : t('Separar as vozes')}</Button>}
         {kept && <Button size="sm" variant="ghost" disabled={busy} title={t('Envia o áudio outra vez para transcrever. Em reuniões com português e inglês pode traduzir o inglês.')} onClick={() => start('text')}>{t('Transcrever outra vez')}</Button>}
         {kept && <Button size="sm" variant="ghost" onClick={() => setAsking(true)}>{t('Apagar áudio')}</Button>}

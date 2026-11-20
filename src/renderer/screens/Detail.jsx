@@ -166,6 +166,11 @@ export default function Detail() {
 
         {tab === 'notes' && (
           <div role="tabpanel" aria-label={t("Notas")} className="col" style={{ gap: 16 }}>
+            {m.notesState === 'writing' && (
+              <div className="card col" aria-hidden="true" style={{ padding: '14px 16px', gap: 8 }}>
+                <SkeletonLines widths={['96%', '64%']} />
+              </div>
+            )}
             {m.notesState === 'ready' && m.summary && (
               <div className="card row wrap" style={{ padding: '14px 16px', justifyContent: 'space-between', gap: 12 }}>
                 <p style={{ flex: '1 1 420px', fontSize: 16, lineHeight: '24px' }}><b>{t("Resumo ·")} </b>{m.summary}</p>
@@ -209,13 +214,11 @@ export default function Detail() {
                 )}
 
                 {m.notesState === 'writing' && (
-                  <div role="status" aria-live="polite" style={{ padding: '12px 20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    <div className="col" style={{ gap: 8 }}><strong style={{ fontSize: 15 }}>{t("A escrever as notas…")}</strong><div className="progress"><div className="indet" /></div></div>
-                    <div className="col muted" style={{ gap: 8 }}>
-                      <span className="row" style={{ gap: 8 }}><Icon name="check" size={16} stroke={2} style={{ color: 'var(--success)' }} />{t('Ler a transcrição · {n} oradores', { n: m.speakers.length })}{m.durationSeconds != null ? `, ${durationStr(m.durationSeconds)}` : ''}</span>
-                      <span style={{ color: 'var(--text)', fontWeight: 600 }}>{t("Juntar o que foi dito às tuas notas")}</span>
-                      <span>{t("Encontrar tarefas e prazos")}</span>
-                    </div>
+                  <div role="status" aria-live="polite" aria-busy="true" aria-label={t("A escrever as notas…")} style={{ padding: '12px 20px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <strong style={{ fontSize: 15 }}>{t("A escrever as notas…")}</strong>
+                    <SkeletonLines widths={['92%', '78%', '85%']} />
+                    <div className="skel" style={{ height: 18, width: '38%', marginTop: 8 }} />
+                    <SkeletonLines widths={['88%', '70%', '81%', '60%']} />
                     <span className="muted" style={{ fontSize: 12 }}>{t("Podes continuar a editar as tuas notas.")}</span>
                   </div>
                 )}
@@ -277,6 +280,11 @@ export default function Detail() {
       )}
     </div>
   );
+}
+
+/** Grey placeholder lines shown while the notes are being written. */
+function SkeletonLines({ widths }) {
+  return <div className="col" style={{ gap: 10 }}>{widths.map((w, i) => <div key={i} className="skel" style={{ height: 14, width: w }} />)}</div>;
 }
 
 function TranscriptTab({ m, goto, clearGoto }) {

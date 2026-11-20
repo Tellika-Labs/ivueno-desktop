@@ -22,8 +22,6 @@ export function buildTours(t) {
       id: 'start', icon: 'mic', title: t("Começar uma reunião"), blurb: t("Como preparar a gravação e avisar as pessoas."),
       steps: [
         { target: '[data-tour="start-title"]', placement: 'bottom', title: t("Dá-lhe um nome"), body: t("É opcional. Se vieres do calendário, o título já vem preenchido. Podes mudá-lo a qualquer momento.") },
-        { target: '[data-tour="start-place"]', placement: 'bottom', title: t("Onde estão as pessoas?"), body: t("“Em chamada” ouve o microfone e o som do computador. “Na mesma sala” só ouve o microfone. “Os dois” serve para uma sala com alguém ao telefone.") },
-        { target: '[data-tour="start-opts"]', placement: 'top', title: t("Opções"), body: t("Pasta, estilo das notas, idioma, participantes e privacidade. Os valores normais servem para a maioria das reuniões.") },
         { target: '[data-tour="start-notice"]', placement: 'top', title: t("Avisa quem está na reunião"), body: t("Antes de gravar, avisa os participantes. A tua resposta fica guardada no registo de consentimento da reunião.") },
         { target: '[data-tour="start-go"]', placement: 'top', title: t("Começar a gravar"), body: t("“Já avisei” começa com os participantes avisados. “Só eu” é para notas pessoais, sem mais ninguém na conversa.") },
       ],

@@ -158,6 +158,22 @@ class ApiClient {
   syncPrefsGet() { return this.request('GET', '/v1/sync/prefs'); }
   syncPrefsPut(network) { return this.request('PUT', '/v1/sync/prefs', { body: { network } }); }
 
+  // --- shared folders: readable copies for the organisation, and what teammates shared with me -----------------------
+
+  serverFolders() { return this.request('GET', '/v1/folders'); }
+  createServerFolder(name) { return this.request('POST', '/v1/folders', { body: { name } }); }
+  shareServerFolder(id, orgId) { return this.request('PUT', `/v1/folders/${encodeURIComponent(id)}/sharing`, { body: { org_id: orgId } }); }
+  unshareServerFolder(id) { return this.request('DELETE', `/v1/folders/${encodeURIComponent(id)}/sharing`); }
+  createCopy(body) { return this.request('POST', '/v1/meetings', { body }); }
+  addCopySegments(id, body) { return this.request('POST', `/v1/meetings/${encodeURIComponent(id)}/segments`, { body }); }
+  nameCopySpeaker(id, key, name) { return this.request('PATCH', `/v1/meetings/${encodeURIComponent(id)}/speakers/${encodeURIComponent(key)}`, { body: { name } }); }
+  deleteCopy(id) { return this.request('DELETE', `/v1/meetings/${encodeURIComponent(id)}`); }
+  sharedFolders() { return this.request('GET', '/v1/shared/folders'); }
+  sharedMeetings(folderId, cursor) { return this.request('GET', '/v1/shared/meetings', { query: { folder_id: folderId, cursor, limit: 100 } }); }
+  sharedMeeting(id) { return this.request('GET', `/v1/meetings/${encodeURIComponent(id)}`); }
+  sharedSegments(id, after = 0) { return this.request('GET', `/v1/meetings/${encodeURIComponent(id)}/segments`, { query: { after, limit: 2000 } }); }
+  sharedChat(id, message, history) { return this.request('POST', `/v1/meetings/${encodeURIComponent(id)}/chat`, { body: { message, history } }); }
+
   // --- cloud tier: transcription and stronger notes; the server keeps nothing -----------------
 
   /** `quality: 'best'` asks for the accurate model (a whole meeting, after it ended); `preview: true` marks a live piece whose meeting gets that accurate pass (not counted against the minutes). */

@@ -8,3 +8,4 @@ scripts/.french-source.json
 .payment-smoke-*/
 .env.local.bak*
 .env
+.DS_Store

@@ -75,7 +75,7 @@ function decryptItem(key, id, blob) {
   return JSON.parse(zlib.gunzipSync(Buffer.concat([decipher.update(ct), decipher.final()])).toString('utf8'));
 }
 
-const snapshot = (m) => { const { syncOff, audio, liveSegments, ...rest } = m; return rest; };      // these belong to this computer only: the kept audio and the transcript set aside
+const snapshot = (m) => { const { syncOff, audio, liveSegments, shareCopyId, shareSyncedVersion, shareAttempt, ...rest } = m; return rest; };      // these belong to this computer only: the kept audio, the transcript set aside, and the marks of this computer's shared copy
 
 class SyncManager {
   constructor({ repo, store, api, secure, emit = () => {}, now = () => new Date() }) {
@@ -226,14 +226,16 @@ class SyncManager {
 
   _keepAsCopy(local) {
     const copy = { ...JSON.parse(JSON.stringify(local)), id: uid('mtg'), title: `${local.title || 'Reunião'} (cópia em conflito)` };
-    delete copy.syncOff;
+    delete copy.syncOff; delete copy.shareCopyId; delete copy.shareSyncedVersion; delete copy.shareAttempt;      // a conflict copy is not the shared copy
     this.store.mutate((d) => { d.meetings.push(copy); });
   }
 
   _place(meeting, syncOff) {
     this.store.mutate((d) => {
       const i = d.meetings.findIndex((m) => m.id === meeting.id);
-      const next = syncOff ? { ...meeting, syncOff: true } : meeting;
+      const here = i >= 0 ? d.meetings[i] : null;
+      const mine = here ? { shareCopyId: here.shareCopyId, shareSyncedVersion: here.shareSyncedVersion, shareAttempt: here.shareAttempt } : {};   // this computer's own shared-copy marks stay
+      const next = { ...meeting, ...mine, ...(syncOff ? { syncOff: true } : {}) };
       if (i >= 0) d.meetings[i] = next; else d.meetings.push(next);
     });
     this.repo.emit('meetings', meeting.id);

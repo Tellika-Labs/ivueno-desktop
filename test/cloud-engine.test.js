@@ -267,3 +267,12 @@ test('a problem reported by the engine shows on the live screen state', () => {
   assert.equal(session.snapshot().error, 'Os minutos acabaram.');
   assert.equal(session.snapshot().engine.needsAudio, true);
 });
+
+test('the notes request says when it is a regeneration, and does not when it is the first run', async () => {
+  const api = fakeApi();
+  const { cloud } = engine(api);
+  await cloud.writeNotes(meeting(), () => 'Rui');
+  await cloud.writeNotes(meeting(), () => 'Rui', { regenerate: true });
+  assert.equal(!!api.calls.notes[0].regenerate, false);
+  assert.equal(api.calls.notes[1].regenerate, true);
+});

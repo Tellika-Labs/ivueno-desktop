@@ -19,6 +19,8 @@ import Home from './screens/Home.jsx';
 import StartDialog from './screens/StartDialog.jsx';
 import Live from './screens/Live.jsx';
 import Detail from './screens/Detail.jsx';
+import Shared from './screens/Shared.jsx';
+import SharedMeeting from './screens/SharedMeeting.jsx';
 import Tasks from './screens/Tasks.jsx';
 import Search from './screens/Search.jsx';
 import Settings from './screens/Settings.jsx';
@@ -70,6 +72,8 @@ export default function App() {
   }, []);
 
   useEffect(() => { refreshAuth().catch(() => setBoot({ loading: false, failed: true })); }, [refreshAuth]);
+  // A shared copy that could not be uploaded or removed in the background (a company rule, a refused meeting...): the owner is told.
+  useEffect(() => on('data:changed', (e) => { if (e && e.kind === 'share:error') toast(friendly({ code: e.code === 'plan_required' ? 'plan_required_org' : e.code, message: e.message })); }), [toast]);
   useEffect(() => on('licence:changed', (licence) => setBoot((b) => (b.auth ? { ...b, auth: { ...b.auth, licence } } : b))), []);
 
   // Theme: "system" follows Windows; light/dark are forced.
@@ -179,7 +183,7 @@ export default function App() {
   const lic = boot.auth.licence;
   const idle = !rec || rec.phase === 'idle' || rec.phase === 'done';
   const screens = {
-    home: <Home />, live: <Live />, detail: <Detail key={route.id} />, tasks: <Tasks />, search: <Search />, settings: <Settings />, plans: <Plans />, checkout: <Checkout key={`${route.plan || ''}${route.resume ? 'r' : ''}${route.switchMethod ? 's' : ''}`} />,
+    home: <Home />, live: <Live />, detail: <Detail key={route.id} />, shared: <Shared key={route.folderId || 'all'} />, sharedMeeting: <SharedMeeting key={route.id} />, tasks: <Tasks />, search: <Search />, settings: <Settings />, plans: <Plans />, checkout: <Checkout key={`${route.plan || ''}${route.resume ? 'r' : ''}${route.switchMethod ? 's' : ''}`} />,
   };
 
   return (

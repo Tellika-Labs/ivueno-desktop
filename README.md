@@ -30,6 +30,8 @@ WiPay checkout now opens inside the payment screen, using the hosted page and co
 - **Sync:** encrypted copy between computers on paid plans; the app asks once for the passphrase; linking a phone with a QR code (the image needs the `qrcode` package, until then the link is shown as text) and the rule for when the phone sends.
 - **Interface:** Portuguese, English and French, light and dark, header and tabs fixed with only the page body scrolling, centred dialogs. Choose Français under Settings → Profile → App language; this is independent of the meeting's spoken language.
 
+- **Shared folders (Team and Enterprise):** share a folder with the organisation from the folder's button in the sidebar. The app uploads a readable copy of each finished meeting in it (the encrypted sync copy cannot be read by teammates) and keeps it up to date; stopping removes the copies. Teammates' folders appear under "Shared with me", read-only, with a question box. See `src/main/sharing.js`.
+
 Not built: installer, auto-update, code signing, macOS build, auto-start from the calendar or call detection, a screen for personal notes made on the phone.
 
 ## Layout

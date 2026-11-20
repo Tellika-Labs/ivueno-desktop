@@ -7,6 +7,7 @@ import { call } from '../lib/bridge.js';
 import { clockStr, initialsOf } from '../lib/format.mjs';
 import { useT } from '../lib/i18n.js';
 import HelpHub from './HelpHub.jsx';
+import ShareFolderDialog from './ShareFolderDialog.jsx';
 
 export default function Sidebar() {
   const { route, nav, rec, auth, openStart, toast, logout } = useApp();
@@ -17,6 +18,8 @@ export default function Sidebar() {
   const [name, setName] = useState('');
   const [menu, setMenu] = useState(false);
   const [help, setHelp] = useState(false);
+  const [sharing, setSharing] = useState(null);       // the folder being shared or un-shared
+  const sharedWithMe = useQuery('shared:folders', null, { kinds: ['folders'] });
   const menuRef = useDismiss(menu, () => setMenu(false));
 
   const recording = rec && (rec.phase === 'recording' || rec.phase === 'paused');
@@ -57,6 +60,9 @@ export default function Sidebar() {
           {overview.data && overview.data.open > 0 && <span className="badge" aria-label={`${overview.data.open} em aberto`}>{overview.data.open}</span>}
         </button>
         <button type="button" className="nav-item" aria-current={route.name === 'search' ? 'page' : undefined} onClick={() => nav('search')}><Icon name="search" />{t('nav.search')}</button>
+        {sharedWithMe.data && sharedWithMe.data.length > 0 && (
+          <button type="button" className="nav-item" aria-current={route.name === 'shared' || route.name === 'sharedMeeting' ? 'page' : undefined} onClick={() => nav('shared')}><Icon name="org" />{t('Partilhadas comigo')}</button>
+        )}
       </nav>
 
       <div className="side-section" data-tour="folders">
@@ -65,9 +71,15 @@ export default function Sidebar() {
           <button type="button" className="icon-btn sm" style={{ width: 24, height: 24 }} aria-label={t('nav.newFolder')} onClick={() => setAdding(true)}><Icon name="plus" size={16} stroke={2} /></button>
         </div>
         {(folders.data || []).map((f) => (
-          <button key={f.id} type="button" className="nav-item folder" aria-current={route.name === 'home' && route.folderId === f.id ? 'true' : undefined} onClick={() => nav('home', { folderId: f.id })}>
-            <Icon name="folder" size={18} /><span className="grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span><span className="count">{f.count}</span>
-          </button>
+          <div key={f.id} className="row" style={{ gap: 2 }}>
+            <button type="button" className="nav-item folder grow" aria-current={route.name === 'home' && route.folderId === f.id ? 'true' : undefined} onClick={() => nav('home', { folderId: f.id })}>
+              <Icon name="folder" size={18} /><span className="grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span><span className="count">{f.count}</span>
+            </button>
+            <button type="button" className="icon-btn sm" style={{ width: 24, height: 24, opacity: f.share ? 1 : 0.6 }} aria-label={f.share ? t('Partilhada com {org}.', { org: f.share.orgName || '' }) : t('Partilhar pasta com a organização')}
+              title={f.share ? t('Partilhada com {org}.', { org: f.share.orgName || '' }) : t('Partilhar pasta com a organização')} onClick={() => setSharing(f)}>
+              <Icon name={f.share ? 'org' : 'share'} size={14} stroke={2} />
+            </button>
+          </div>
         ))}
         {adding && (
           <form onSubmit={addFolder} style={{ padding: '2px 4px' }}>
@@ -100,6 +112,7 @@ export default function Sidebar() {
         </div>
       </div>
       {help && <HelpHub onClose={() => setHelp(false)} />}
+      {sharing && <ShareFolderDialog folder={sharing} onClose={() => setSharing(null)} />}
     </aside>
   );
 }

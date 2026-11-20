@@ -47,7 +47,7 @@ class Repo {
       redact: input.redact ?? s.redact,
       attendees: (input.attendees || []).slice(0, 100).map((a) => ({ name: a.name || '', email: a.email || '' })),
       calendarEventId: input.calendarEventId || null,
-      place: ['room', 'online', 'both'].includes(input.place) ? input.place : (s.meetingPlace || 'both'),   // everybody in the room | a call | both
+      place: ['room', 'online', 'both'].includes(input.place) ? input.place : 'both',   // everybody in the room | a call | both (the app always asks for both: microphone and computer sound)
       audio: input.audio || null,          // {keep, keepUntil, blocks, bytes}: the audio kept on this computer for the accurate pass (null = none)
       refine: null,                        // {state: running | done | failed, at, voices, voiceState, error}: the accurate pass over the kept audio
       liveSegments: null,                  // the live transcript, set aside when the accurate one replaced it (only while the audio is kept)
@@ -304,13 +304,46 @@ class Repo {
   }
 
   listFolders() {
-    return this.d.folders.map((f) => ({ ...f, count: this.d.meetings.filter((m) => m.folderId === f.id).length }));
+    return this.d.folders.map((f) => ({ ...f, share: f.share || null, count: this.d.meetings.filter((m) => m.folderId === f.id).length }));
+  }
+
+  getFolder(id) { return this.d.folders.find((f) => f.id === id) || null; }
+
+  /** Shared folders (the person shared them with an organisation): { serverFolderId, orgId, orgName, includeTranscript } or null. */
+  setFolderShare(id, share) {
+    const folder = this.getFolder(id);
+    if (!folder) { const e = new Error('folder_not_found'); e.code = 'not_found'; throw e; }
+    this.store.mutate(() => { folder.share = share || null; });
+    this.emit('folders');
+  }
+
+  /** The readable copy of a meeting kept on the server for a shared folder: { copyId, version } or null. Does not touch the meeting's own version. */
+  setShareCopy(id, copy) {
+    const m = this._require(id);
+    this.store.mutate(() => { m.shareCopyId = copy ? copy.copyId : null; m.shareSyncedVersion = copy ? copy.version : null; });
+  }
+
+  /** An upload of a copy whose reply may have been lost: the server folder it was sent to, so the copy can be found again. */
+  setShareAttempt(id, serverFolderId) {
+    const m = this._require(id);
+    this.store.mutate(() => { m.shareAttempt = serverFolderId || null; });
+  }
+
+  /** Copies whose server delete could not be done yet (offline): remembered so they are not left behind. */
+  addShareTombstone(copyId) {
+    this.store.mutate((d) => { d.shareTombstones = [...new Set([...(d.shareTombstones || []), copyId])]; });
+  }
+
+  shareTombstones() { return (this.d.shareTombstones || []).slice(); }
+
+  clearShareTombstone(copyId) {
+    this.store.mutate((d) => { d.shareTombstones = (d.shareTombstones || []).filter((x) => x !== copyId); });
   }
 
   createFolder(name) {
     const clean = String(name || '').trim().slice(0, 80);
     if (!clean) { const e = new Error('empty_name'); e.code = 'invalid'; throw e; }
-    const folder = { id: uid('fld'), name: clean };
+    const folder = { id: uid('fld'), name: clean, share: null };
     this.store.mutate((d) => { d.folders.push(folder); });
     this.emit('folders');
     return folder;

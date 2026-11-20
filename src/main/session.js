@@ -153,8 +153,8 @@ class Session extends EventEmitter {
     return undefined;
   }
 
-  /** Stop recording and write the notes. Resolves when the notes are stored (or recorded as failed). */
-  async stop() {
+  /** Stop recording and write the notes. Resolves when the notes are stored (or recorded as failed); with wait: false it resolves at once and the notes are written in the background (the meeting says notesState 'writing'). */
+  async stop({ wait = true } = {}) {
     if (this.phase !== 'recording' && this.phase !== 'paused') return null;
     if (this.stopping) return null;
     this.stopping = true;
@@ -175,14 +175,17 @@ class Session extends EventEmitter {
     this.repo.addConsent(id, 'recording_stopped', `Gravação parada${hidden ? ` · ${hidden} detalhes sensíveis ocultados` : ''}`);
     this.phase = 'writing';
     this._emit();
-    await this.generateNotes(id);
-    this.phase = 'done';
-    this._emit();
-    this.stopping = false;
-    this.emit('finished', id);                                    // the app may now improve the transcript from the kept audio
-    if (this.engine.release) this.engine.release();
-    this.lingerTimer = setTimeout(() => { this.phase = 'idle'; this.meetingId = null; this._emit(); }, this.doneLingerMs);
-    if (this.lingerTimer.unref) this.lingerTimer.unref();
+    const finish = async () => {
+      await this.generateNotes(id);
+      this.phase = 'done';
+      this._emit();
+      this.stopping = false;
+      this.emit('finished', id);                                    // the app may now improve the transcript from the kept audio
+      if (this.engine.release) this.engine.release();
+      this.lingerTimer = setTimeout(() => { this.phase = 'idle'; this.meetingId = null; this._emit(); }, this.doneLingerMs);
+      if (this.lingerTimer.unref) this.lingerTimer.unref();
+    };
+    if (wait) await finish(); else finish().catch(() => {});
     return this.repo.getMeeting(id);
   }
 
@@ -190,6 +193,7 @@ class Session extends EventEmitter {
   async generateNotes(id) {
     const m = this.repo.getMeeting(id);
     if (!m) return;
+    const regenerate = m.notesState === 'ready';                 // notes already exist: writing them again counts against the plan's regeneration limit
     this.repo.updateMeeting(id, { notesState: 'writing', notesError: '' });
     this.emit('notes-state', { id, state: 'writing' });
     try {
@@ -201,7 +205,7 @@ class Session extends EventEmitter {
         } catch { /* a hint only */ }
       }
       const fresh = this.repo.getMeeting(id);
-      const result = await this.engine.writeNotes(fresh, (key) => this.repo.speakerName(fresh, key));
+      const result = await this.engine.writeNotes(fresh, (key) => this.repo.speakerName(fresh, key), { regenerate });
       this.repo.setGenerated(id, result);
       if (!m.keepTranscript && m.segments.length) this.repo.deleteTranscript(id);
       this.emit('notes-state', { id, state: 'ready' });

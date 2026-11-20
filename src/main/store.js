@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS = {
   audioKeep: '7d',            // how long the audio of a meeting stays on this computer: off | final (until the accurate pass is done) | 7d | 30d
   refineMode: 'voices',       // what happens to the kept audio after a meeting: voices (tell the people apart, the transcript stays) | text (also transcribe it again) | off
   glossary: '',               // the person's own terms and names, sent to the speech service as a short hint (empty = no hint)
-  meetingPlace: 'both',       // who is where: room (everybody here) | online (a call) | both
+  translateTo: '',            // translate the notes into this language by default ('' = the language of the meeting)
   syncPrompted: false,        // the "turn on sync" question was shown once (paid plans)
   toursSeen: [],              // the tutorials already shown (ids), so each one runs by itself only once
   autoTours: true,            // tutorials start by themselves the first time a screen appears

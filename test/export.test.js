@@ -35,6 +35,30 @@ test('html escapes the title', () => {
   assert.match(toHtml(m, { nameOf: (k) => repo.speakerName(m, k) }), /Revisão de preços Q4 &lt;&amp;&gt;/);
 });
 
+test('PDF content stays escaped and respects section and branding choices', () => {
+  const { repo, m } = meeting();
+  const nameOf = () => '<script>speaker</script>';
+  const payload = '<img src="https://example.com"> & notes';
+  m.summary = payload;
+  m.myNotes = payload;
+  m.tasks[0].text = payload;
+  m.segments[0].text = payload;
+  m.segments[0].translation = payload;
+  const html = toHtml(m, { nameOf, includeTranscript: true, brand: true });
+  assert.doesNotMatch(html, /<img src="https:|<script>/);
+  assert.match(html, /class="app-logo" src="data:image\/svg\+xml;base64,/);
+  const logo = Buffer.from(html.match(/src="data:image\/svg\+xml;base64,([^"]+)"/)[1], 'base64');
+  assert.deepEqual(logo, fs.readFileSync(path.join(__dirname, '../assets/app-icon.svg')));
+  assert.match(html, /&lt;script&gt;speaker&lt;\/script&gt;/);
+  assert.match(html, /&lt;img src=&quot;https:\/\/example.com&quot;&gt; &amp; notes/);
+  assert.match(html, /class="translation text"/);
+  assert.match(html, /Notas criadas com a Ivueno/);
+  const excluded = toHtml(m, { nameOf, include: { summary: false, mine: false, ai: false, tasks: false, transcript: false } });
+  assert.doesNotMatch(excluded, /<section|<img src="https:|Notas criadas com a Ivueno/);
+  assert.match(excluded, /PARTICIPANTES/);
+  assert.match(excluded, /font\/woff2;base64,/);
+});
+
 test('docx is a valid zip whose entries inflate to well-formed content', () => {
   const { repo, m } = meeting();
   const buf = toDocx(m, { nameOf: (k) => repo.speakerName(m, k) });

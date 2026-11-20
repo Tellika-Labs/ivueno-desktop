@@ -31,6 +31,7 @@ const brand = require('./brand');
 const { Dictation } = require('./dictation');
 const { UsageReporter } = require('./usage');
 const { SyncManager } = require('./sync');
+const { SharingManager } = require('./sharing');
 const { Pairing } = require('./pairing');
 const { AudioArchive, retentionUntil, purgeExpired } = require('./audio-archive');
 const { Refiner } = require('./refiner');
@@ -98,9 +99,10 @@ const broadcast = (channel, payload) => {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, payload);
 };
 
+let sharingRef = null;   // set below; a change to a meeting asks it to look at the meeting's shared copy
 let syncRef = null;      // set below; a change to meetings asks it to sync soon
 // Built per account by openAccount(): the meetings, the recording session, kept audio, imports, the accurate pass, sync, pairing, telemetry, and the request handlers.
-let repo = null, session = null, importer = null, archive = null, refiner = null, telemetry = null, sync = null, pairing = null, handlers = null;
+let repo = null, session = null, importer = null, archive = null, refiner = null, telemetry = null, sync = null, sharing = null, pairing = null, handlers = null;
 let accountGen = 0;      // bumped when an account closes: anything its objects still emit afterwards is dropped
 let purgeTimer = null;
 // Everything that needs AI runs in the cloud (the Ivueno server, which uses Groq): see engine/router.js. The demonstration engine only supplies the plain,
@@ -234,6 +236,7 @@ const services = {
   async wipeLocal() {
     await sync.disable();
     sync.stop();
+    if (sharing) sharing.stop();
     for (const id of archive.ids()) archive.remove(id);
     store.wipe(); secure.clear({ keep: ['localDataKey'] });      // the data key stays: other accounts on this computer need it
     if (activeId) { try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* the folder is empty anyway */ } }
@@ -312,7 +315,7 @@ function openAccount() {
   const live = () => gen === accountGen;
   const emit = (channel, payload) => { if (live()) broadcast(channel, payload); };
   const st = store;
-  const r = new Repo(st, (kind, id) => { emit('data:changed', { kind, id }); if (live() && kind === 'meetings' && syncRef) syncRef.schedule(); });
+  const r = new Repo(st, (kind, id) => { emit('data:changed', { kind, id }); if (live() && kind === 'meetings' && syncRef) syncRef.schedule(); if (live() && ['meetings', 'notes', 'tasks'].includes(kind) && id && sharingRef && api.signedIn()) sharingRef.schedule(id); });
   const s = new Session({ repo: r, engine });
   const imp = new AudioImporter({ repo: r, engine, voices, glossary: () => st.data.settings.glossary, tmpDir: require('os').tmpdir(), notes: (id) => s.generateNotes(id) });
   const arc = new AudioArchive({ dir: path.join(dataDir, 'audio'), cipher: localCipher });
@@ -346,6 +349,7 @@ function openAccount() {
   });
   const syn = new SyncManager({ repo: r, store: st, api, secure, emit: () => emit('data:changed', { kind: 'sync' }) });
   const pair = new Pairing({ api, secure, getBase: apiBase });
+  const shr = new SharingManager({ repo: r, api, ownerName: () => ((secure.get('user') || {}).name || ''), emit: (kind, payload) => emit('data:changed', { kind, ...(payload && typeof payload === 'object' ? payload : { id: payload }) }) });
 
   s.beforeStop = () => new Promise((resolve) => {
     const timer = setTimeout(() => { flushWaiter = null; resolve(); }, 4000);
@@ -373,8 +377,8 @@ function openAccount() {
     if (autoRec && (autoRec.any || autoRec.key === call.key)) scheduleEndAsk();      // the call is over: ask about the recording in a minute
   });
 
-  repo = r; session = s; importer = imp; archive = arc; refiner = ref; telemetry = tel; sync = syn; syncRef = syn; pairing = pair;
-  handlers = createHandlers({ repo: r, session: s, engine, api, licence, secure, services, dictation, usage, sync: syn, pairing: pair, archive: arc, refiner: ref, decodeReply, importer: imp, mediaDecoder, voices, voiceModels, updater, version: app.getVersion() });
+  repo = r; session = s; importer = imp; archive = arc; refiner = ref; telemetry = tel; sync = syn; syncRef = syn; sharing = shr; sharingRef = shr; pairing = pair;
+  handlers = createHandlers({ repo: r, session: s, engine, api, licence, secure, services, dictation, usage, sync: syn, sharing: shr, pairing: pair, archive: arc, refiner: ref, decodeReply, importer: imp, mediaDecoder, voices, voiceModels, updater, version: app.getVersion() });
 }
 
 /** Stops what the open account still has running. Its objects keep pointing at its own folder, so anything already under way finishes there. */
@@ -385,6 +389,7 @@ function closeAccount() {
   resetAutoRec();
   closeMeetingPrompt();
   try { sync.stop(); } catch { /* not started */ }
+  try { sharing.stop(); } catch { /* not started */ }
   try { telemetry.stop(); } catch { /* not started */ }
   try { pairing.cancel().catch(() => {}); } catch { /* nothing waiting */ }
   try { store.flush(); } catch { /* written already */ }
@@ -412,6 +417,7 @@ function startAccount() {
   detector.start();
   if (api.signedIn()) usage.flush().catch(() => {});
   sync.start();
+  if (api.signedIn()) sharing.start();
   if (api.signedIn()) sync.syncNow().catch(() => {});
   if (api.signedIn()) licence.refresh().then(() => broadcast('licence:changed', licence.status())).catch(() => {});
 }
@@ -658,11 +664,11 @@ function sendToMain(channel, payload) {
   else wc.send(channel, payload);
 }
 
-/** Starts a meeting from the menu-bar icon with the saved defaults (place, notes style, language, transcript, hiding). */
+/** Starts a meeting from the menu-bar icon with the saved defaults (notes style, language, transcript, hiding). */
 async function trayStart(consent, { background = false } = {}) {
   if (!store.data.onboarded || !api.signedIn() || secure.get('user')?.id !== store.data.accountId) { showMain(); return false; }   // the app asks to sign in / finish setup
   const s = store.data.settings;
-  const place = s.meetingPlace || 'both';
+  const place = 'both';
   // The main window captures the sound, so it has to exist; it stays where it is if it is already open.
   if (!mainWin || mainWin.isDestroyed()) openMain({ show: !background });
   try {
